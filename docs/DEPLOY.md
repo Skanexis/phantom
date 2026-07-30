@@ -307,6 +307,23 @@ rsync -avz --delete \
 
 ### 5C. Installazione dipendenze
 
+> **Stai lavorando come `root`?** Guarda il prompt: se vedi `root@...#` invece di `phantom@...$`, i file appena clonati appartengono a `root`. L'app girerà con l'utente `phantom` e non potrà scrivere dove serve.
+>
+> Sistema la proprietà dei file:
+>
+> ```bash
+> chown -R phantom:phantom /var/www/phantomlab
+> ```
+>
+> Poi passa all'utente corretto e prosegui da lì:
+>
+> ```bash
+> su - phantom
+> cd /var/www/phantomlab
+> ```
+>
+> Se preferisci restare come `root`, il deploy funziona comunque, ma in `ecosystem.config.js` e negli script di backup i percorsi vanno adattati — ed è una pratica meno sicura.
+
 Sul VPS, dentro `/var/www/phantomlab`:
 
 ```bash
@@ -316,16 +333,54 @@ npm ci
 
 **Output atteso:** `added NNN packages in ...`
 
+> Gli avvisi `npm warn ERESOLVE` sono normali e non compromettono l'installazione.
+
+<details>
+<summary><b>Errore: "npm ci can only install packages when your package.json and package-lock.json are in sync"</b></summary>
+
+Il messaggio elenca voci `Missing:` o `Invalid:` (spesso pacchetti `@emnapi/...`).
+
+**Causa:** il `package-lock.json` è disallineato rispetto a `package.json`. Capita quando le dipendenze sono state aggiunte e rimosse in momenti diversi.
+
+**Soluzione — sul TUO computer**, rigenera il lock e invialo:
+
+```bash
+cd "c:/Users/be4ho/Desktop/WORK/Phantomlab"
+rm -rf node_modules package-lock.json
+npm install
+npm ci          # deve concludersi senza errori
+git add package-lock.json
+git commit -m "Rigenera package-lock.json"
+git push
+```
+
+Poi **sul VPS**:
+
+```bash
+cd /var/www/phantomlab
+git pull
+npm ci
+```
+
+**Soluzione rapida** (se non puoi rigenerare subito dal tuo computer): sul VPS usa `npm install` al posto di `npm ci`. Funziona, ma può installare versioni leggermente diverse da quelle testate in locale.
+</details>
+
 <details>
 <summary><b>Errore: "npm ci can only install with an existing package-lock.json"</b></summary>
 
-Il file `package-lock.json` non è arrivato sul server. Verifica:
+Il file `package-lock.json` non è arrivato sul server:
 
 ```bash
 ls -la package-lock.json
 ```
 
-Se manca, ricopialo dal tuo computer oppure usa `npm install` (più lento e potenzialmente con versioni diverse).
+Se manca, ricopialo dal tuo computer oppure usa `npm install`.
+</details>
+
+<details>
+<summary><b>Molti avvisi <code>npm warn ERESOLVE overriding peer dependency</code></b></summary>
+
+Sono **avvisi, non errori**: riguardano dipendenze WASM opzionali usate solo su piattaforme senza binari nativi. Se l'installazione termina con `added NNN packages`, è andata a buon fine.
 </details>
 
 <details>
@@ -385,6 +440,9 @@ Al termine copia la riga `DATABASE_URL="..."` che compare: ti servirà al passo 
 ```bash
 openssl rand -hex 24
 ```
+
+
+
 
 a96e926b212eb64d0b9c0750facc0a2faddc95d39b6a4ce9
 
@@ -517,22 +575,22 @@ nano .env
 Contenuto (sostituisci i valori tra virgolette):
 
 ```bash
-DATABASE_URL="postgresql://phantomlab:LA_PASSWORD_DEL_DB@127.0.0.1:5432/phantomlab?schema=public"
+DATABASE_URL="postgresql://phantomlab:4ab8845c2d6e1154d5ecc1b48cb7fb10f8abea69ad9367a7@127.0.0.1:5432/phantomlab?schema=public"
 
-TELEGRAM_BOT_TOKEN="123456:ABC-DEF_il_tuo_token"
+TELEGRAM_BOT_TOKEN="8548139085:AAHVxSCgdWITI-lcpsNRCeleWy-tWC3bGsU"
 TELEGRAM_BOT_USERNAME="phantomlab_bot"
-TELEGRAM_ADMIN_CHAT_ID="IL_TUO_TELEGRAM_ID"
-TELEGRAM_WEBHOOK_SECRET="il_segreto_hex_generato_sopra"
-ADMIN_TELEGRAM_IDS="IL_TUO_TELEGRAM_ID"
+TELEGRAM_ADMIN_CHAT_ID="8350911242"
+TELEGRAM_WEBHOOK_SECRET="770200d1d91066fd78243b3ece470e93c58dda9bc8695f3845ee8c22cf6ec7bc"
+ADMIN_TELEGRAM_IDS="8350911242"
 
-AUTH_SECRET="il_segreto_base64_generato_sopra"
+AUTH_SECRET="pyBfLFFblPeST5n9j/G6f92y3nfRxD0szY2/FVZ2B1Rge9J48vo4EKh1LSMu4Itw"
 ALLOW_DEV_LOGIN="false"
 
 SITO_CHIUSO="true"
-SITO_PASSWORD="LA_PASSWORD_PER_ENTRARE"
+SITO_PASSWORD="020280"
 
 NODE_ENV="production"
-PORT="3000"
+PORT="3080"
 ```
 
 Salva con `Ctrl+O`, `Invio`, poi `Ctrl+X`.
@@ -616,7 +674,7 @@ L'ultimo comando stampa una riga che inizia con `sudo env PATH=...`: **copiala e
 ### Verifica che risponda
 
 ```bash
-curl -I http://127.0.0.1:3000
+curl -I http://127.0.0.1:3080
 pm2 status
 pm2 logs phantomlab --lines 30
 ```
@@ -648,7 +706,7 @@ server {
     }
 
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:3080;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
