@@ -1,0 +1,232 @@
+// Schema dati Phantom Lab.
+// In produzione sostituire provider con "postgresql" e aggiornare DATABASE_URL.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Ruolo {
+  UTENTE
+  ADMIN
+}
+
+enum StatoRichiesta {
+  NUOVA
+  IN_LAVORAZIONE
+  IN_ATTESA_CLIENTE
+  COMPLETATA
+  ANNULLATA
+}
+
+enum AmbitoSviluppo {
+  SITO_WEB
+  APPLICAZIONE
+  AUTOMAZIONE
+}
+
+enum StatoAbbonamentoUtente {
+  IN_ATTESA
+  ATTIVO
+  SOSPESO
+  SCADUTO
+  ANNULLATO
+}
+
+model Utente {
+  id             String   @id @default(cuid())
+  telegramId     String   @unique
+  username       String?
+  nome           String?
+  cognome        String?
+  linguaTelegram String?
+  urlFoto        String?
+  ruolo          Ruolo    @default(UTENTE)
+  creatoIl       DateTime @default(now())
+  aggiornatoIl   DateTime @updatedAt
+
+  richieste            Richiesta[]
+  abbonamentiUtente    AbbonamentoUtente[]
+  notifiche            Notifica[]
+  tokenCollegamento    TokenCollegamento[]
+
+  @@index([ruolo])
+}
+
+/// Piani di abbonamento, interamente editabili dal pannello admin.
+model Abbonamento {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  nome           String
+  sottotitolo    String?
+  descrizione    String
+  prezzoCentesimi Int
+  valuta         String   @default("EUR")
+  periodo        String   @default("mese")
+  attivo         Boolean  @default(true)
+  inEvidenza     Boolean  @default(false)
+  ordine         Int      @default(0)
+  creatoIl       DateTime @default(now())
+  aggiornatoIl   DateTime @updatedAt
+
+  funzionalita       FunzionalitaAbbonamento[]
+  abbonamentiUtente  AbbonamentoUtente[]
+
+  @@index([attivo, ordine])
+}
+
+/// Singola voce dell'elenco funzionalità di un piano.
+model FunzionalitaAbbonamento {
+  id            String   @id @default(cuid())
+  abbonamentoId String
+  testo         String
+  inclusa       Boolean  @default(true)
+  ordine        Int      @default(0)
+
+  abbonamento Abbonamento @relation(fields: [abbonamentoId], references: [id], onDelete: Cascade)
+
+  @@index([abbonamentoId, ordine])
+}
+
+model AbbonamentoUtente {
+  id            String                 @id @default(cuid())
+  utenteId      String
+  abbonamentoId String
+  stato         StatoAbbonamentoUtente @default(ATTIVO)
+  inizioIl      DateTime               @default(now())
+  scadeIl       DateTime?
+  note          String?
+  creatoIl      DateTime               @default(now())
+  aggiornatoIl  DateTime               @updatedAt
+
+  utente      Utente      @relation(fields: [utenteId], references: [id], onDelete: Cascade)
+  abbonamento Abbonamento @relation(fields: [abbonamentoId], references: [id])
+
+  @@index([utenteId, stato])
+}
+
+/// Richiesta di sviluppo su misura inviata dal form pubblico.
+model Richiesta {
+  id           String         @id @default(cuid())
+  /// Numero progressivo leggibile, usato nelle comunicazioni col cliente.
+  numero       Int            @unique @default(autoincrement())
+  utenteId     String?
+  ambito       AmbitoSviluppo
+  stato        StatoRichiesta @default(NUOVA)
+  nomeContatto String
+  contatto     String
+  budget       String?
+  messaggio    String
+  noteAdmin    String?
+  creatoIl     DateTime       @default(now())
+  aggiornatoIl DateTime       @updatedAt
+
+  utente Utente?          @relation(fields: [utenteId], references: [id], onDelete: SetNull)
+  storico StoricoStato[]
+
+  @@index([stato, creatoIl])
+}
+
+/// Traccia ogni cambio di stato di una richiesta, per la cronologia utente.
+model StoricoStato {
+  id          String         @id @default(cuid())
+  richiestaId String
+  stato       StatoRichiesta
+  nota        String?
+  creatoIl    DateTime       @default(now())
+
+  richiesta Richiesta @relation(fields: [richiestaId], references: [id], onDelete: Cascade)
+
+  @@index([richiestaId, creatoIl])
+}
+
+model Notifica {
+  id        String   @id @default(cuid())
+  utenteId  String
+  titolo    String
+  testo     String
+  letta     Boolean  @default(false)
+  url       String?
+  creatoIl  DateTime @default(now())
+
+  utente Utente @relation(fields: [utenteId], references: [id], onDelete: Cascade)
+
+  @@index([utenteId, letta])
+}
+
+/// Token monouso per collegare una sessione browser a un account Telegram.
+/// Il browser genera il token, l'utente apre il bot con /start <token>,
+/// il webhook lo marca come confermato e il browser completa l'accesso.
+model TokenCollegamento {
+  id         String    @id @default(cuid())
+  token      String    @unique
+  utenteId   String?
+  confermato Boolean   @default(false)
+  usato      Boolean   @default(false)
+  scadeIl    DateTime
+  creatoIl   DateTime  @default(now())
+
+  utente Utente? @relation(fields: [utenteId], references: [id], onDelete: Cascade)
+
+  @@index([token, usato])
+}
+
+/// Testi della homepage modificabili da admin, indicizzati per chiave.
+model ContenutoSito {
+  chiave       String   @id
+  valore       String
+  gruppo       String   @default("generale")
+  aggiornatoIl DateTime @updatedAt
+}
+
+model Servizio {
+  id           String   @id @default(cuid())
+  titolo       String
+  descrizione  String
+  icona        String   @default("code")
+  attivo       Boolean  @default(true)
+  ordine       Int      @default(0)
+  aggiornatoIl DateTime @updatedAt
+
+  @@index([attivo, ordine])
+}
+
+model Vantaggio {
+  id           String   @id @default(cuid())
+  titolo       String
+  descrizione  String
+  icona        String   @default("spark")
+  attivo       Boolean  @default(true)
+  ordine       Int      @default(0)
+  aggiornatoIl DateTime @updatedAt
+
+  @@index([attivo, ordine])
+}
+
+model Faq {
+  id           String   @id @default(cuid())
+  domanda      String
+  risposta     String
+  attiva       Boolean  @default(true)
+  ordine       Int      @default(0)
+  aggiornatoIl DateTime @updatedAt
+
+  @@index([attiva, ordine])
+}
+
+model Contatto {
+  id           String   @id @default(cuid())
+  etichetta    String
+  valore       String
+  url          String?
+  icona        String   @default("link")
+  attivo       Boolean  @default(true)
+  ordine       Int      @default(0)
+  aggiornatoIl DateTime @updatedAt
+
+  @@index([attivo, ordine])
+}
