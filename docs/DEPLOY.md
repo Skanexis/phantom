@@ -767,8 +767,8 @@ Sostituisci i valori con i tuoi:
 
 ```bash
 curl -F "url=https://phantom-lab.eu/api/telegram/webhook" \
-     -F "secret_token=IL_TUO_TELEGRAM_WEBHOOK_SECRET" \
-     "https://api.telegram.org/botIL_TUO_TOKEN/setWebhook"
+     -F "secret_token=770200d1d91066fd78243b3ece470e93c58dda9bc8695f3845ee8c22cf6ec7bc" \
+     "https://api.telegram.org/bot8548139085:AAHVxSCgdWITI-lcpsNRCeleWy-tWC3bGsU/setWebhook"
 ```
 
 Attesa: `{"ok":true,"result":true,"description":"Webhook was set"}`.
@@ -776,7 +776,7 @@ Attesa: `{"ok":true,"result":true,"description":"Webhook was set"}`.
 ### Verifica lo stato
 
 ```bash
-curl "https://api.telegram.org/botIL_TUO_TOKEN/getWebhookInfo"
+curl "https://api.telegram.org/bot8548139085:AAHVxSCgdWITI-lcpsNRCeleWy-tWC3bGsU/getWebhookInfo"
 ```
 
 Controlla che `pending_update_count` sia basso e che non compaia `last_error_message`.

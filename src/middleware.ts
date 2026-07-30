@@ -15,10 +15,7 @@ const PERCORSI_LIBERI = [
 ];
 
 export async function middleware(richiesta: NextRequest) {
-  // DEBUG: временно отключено для поиска бага
-  return NextResponse.next();
-
-  // if (!gateAttivo()) return NextResponse.next();
+  if (!gateAttivo()) return NextResponse.next();
 
   const { pathname } = richiesta.nextUrl;
 
