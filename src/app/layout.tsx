@@ -48,14 +48,23 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <Script
-          src="https://telegram.org/js/telegram-web-app.js"
-          strategy="beforeInteractive"
-        />
+        {/* Apre in anticipo la connessione TLS verso telegram.org, così il
+            caricamento dello script non paga handshake e DNS da zero. */}
+        <link rel="preconnect" href="https://telegram.org" />
+        <link rel="dns-prefetch" href="https://telegram.org" />
+
         {/* Applica il tema prima del primo paint per evitare il lampo di colore. */}
         <script dangerouslySetInnerHTML={{ __html: scriptTemaIniziale }} />
       </head>
       <body className="min-h-full flex flex-col">
+        {/* afterInteractive invece di beforeInteractive: con quest'ultimo il
+            primo paint resta bloccato finché telegram.org non risponde, e
+            fuori da Telegram lo script non serve comunque al rendering.
+            TelegramProvider attende già l'oggetto window.Telegram. */}
+        <Script
+          src="https://telegram.org/js/telegram-web-app.js"
+          strategy="afterInteractive"
+        />
         <TemaProvider>
           <TelegramProvider>{children}</TelegramProvider>
         </TemaProvider>

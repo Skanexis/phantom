@@ -40,12 +40,12 @@ export default function Manutenzione() {
               </dt>
               <dd>
                 <a
-                  href="https://t.me/phantomlab"
+                  href="https://t.me/phantomlabd"
                   target="_blank"
                   rel="noreferrer"
                   className="mono text-[13px] transition-colors hover:text-[var(--accento)]"
                 >
-                  @phantomlab
+                  @phantomlabd
                 </a>
               </dd>
             </div>

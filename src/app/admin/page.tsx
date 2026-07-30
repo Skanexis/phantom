@@ -136,7 +136,9 @@ export default async function PannelloAdmin() {
           </Link>
         </div>
 
-        <div className="grid border-b border-l border-[var(--bordo)] sm:grid-cols-4">
+        {/* 2 colonne su mobile invece di 4 righe impilate: i numeri restano
+            visibili tutti insieme senza occupare l'intera schermata. */}
+        <div className="grid grid-cols-2 border-b border-l border-[var(--bordo)] sm:grid-cols-4">
           {[
             { valore: richieste.length, etichetta: "Richieste" },
             { valore: richiesteNuove, etichetta: "Da lavorare" },
@@ -146,8 +148,11 @@ export default async function PannelloAdmin() {
               etichetta: "Piani attivi",
             },
           ].map((dato) => (
-            <div key={dato.etichetta} className="border-r border-[var(--bordo)] p-5">
-              <span className="display block text-[36px]">
+            <div
+              key={dato.etichetta}
+              className="border-r border-t border-[var(--bordo)] p-4 sm:border-t-0 sm:p-5"
+            >
+              <span className="display block text-[32px] sm:text-[36px]">
                 {String(dato.valore).padStart(2, "0")}
               </span>
               <Etichetta className="mt-1 block">{dato.etichetta}</Etichetta>
@@ -182,17 +187,19 @@ export default async function PannelloAdmin() {
                 <div className="flex flex-col gap-4">
                   {richieste.map((richiesta, indice) => (
                     <article key={richiesta.id} className={blocco}>
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--bordo)] pb-4">
+                      <div className="flex flex-col gap-3 border-b border-[var(--bordo)] pb-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                         <div className="flex items-baseline gap-3">
-                          <span className="mono text-[11px] tracking-[0.12em] text-[var(--testo-debole)]">
+                          <span className="mono shrink-0 text-[11px] tracking-[0.12em] text-[var(--testo-debole)]">
                             {String(richieste.length - indice).padStart(3, "0")}
                           </span>
-                          <h3 className="text-[17px] font-semibold tracking-[-0.01em]">
+                          <h3 className="text-[17px] font-semibold tracking-[-0.01em] break-words">
                             {etichetteAmbito[richiesta.ambito]} ·{" "}
                             {richiesta.nomeContatto}
                           </h3>
                         </div>
-                        <BadgeStato stato={richiesta.stato} />
+                        <div className="self-start sm:self-auto">
+                          <BadgeStato stato={richiesta.stato} />
+                        </div>
                       </div>
 
                       <dl className="mt-4 grid gap-1">
@@ -211,29 +218,41 @@ export default async function PannelloAdmin() {
                             : []),
                           ["Data", richiesta.creatoIl.toLocaleString("it-IT")],
                         ].map(([chiave, valore]) => (
-                          <div key={chiave} className="flex items-baseline gap-2">
-                            <dt className="mono w-24 shrink-0 text-[10px] uppercase tracking-[0.12em] text-[var(--testo-debole)]">
+                          // Su mobile l'etichetta va sopra il valore: affiancata
+                          // lascerebbe ai contatti lunghi una colonna troppo
+                          // stretta, con il testo spezzato a metà parola.
+                          <div
+                            key={chiave}
+                            className="flex flex-col gap-0.5 border-b border-dashed border-[var(--bordo)] py-1.5 last:border-0 sm:flex-row sm:items-baseline sm:gap-2 sm:border-0 sm:py-0"
+                          >
+                            <dt className="mono text-[10px] uppercase tracking-[0.12em] text-[var(--testo-debole)] sm:w-24 sm:shrink-0">
                               {chiave}
                             </dt>
-                            <dd className="mono text-[12px]">{valore}</dd>
+                            <dd className="mono text-[13px] break-words sm:text-[12px]">
+                              {valore}
+                            </dd>
                           </div>
                         ))}
                       </dl>
 
-                      <p className="mono mt-4 whitespace-pre-line border-t border-dashed border-[var(--bordo)] pt-4 text-[12.5px] leading-[1.7]">
+                      <p className="mono mt-4 whitespace-pre-line border-t border-dashed border-[var(--bordo)] pt-4 text-[13.5px] leading-[1.75] break-words sm:text-[12.5px]">
                         {richiesta.messaggio}
                       </p>
 
-                      <div className="mt-5 flex flex-wrap items-end gap-2.5">
+                      {/* Su mobile i campi vanno in colonna e "Elimina" resta
+                          staccato in fondo: affiancato a "Aggiorna" su schermi
+                          stretti finirebbe premuto per sbaglio. */}
+                      <div className="mt-5 flex flex-col gap-4">
                         <form
                           action={aggiornaStatoRichiesta}
-                          className="flex flex-1 flex-wrap items-end gap-2.5"
+                          className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-end"
                         >
                           <input type="hidden" name="id" value={richiesta.id} />
                           <select
                             name="stato"
                             defaultValue={richiesta.stato}
-                            className={`${classiSelettore} w-auto`}
+                            aria-label="Stato della richiesta"
+                            className={`${classiSelettore} sm:w-auto`}
                           >
                             {Object.entries(etichetteStato).map(
                               ([valore, etichetta]) => (
@@ -250,12 +269,16 @@ export default async function PannelloAdmin() {
                           <input
                             name="nota"
                             placeholder="Nota per il cliente (facoltativa)"
-                            className={`${classiSelettore} min-w-40 flex-1`}
+                            aria-label="Nota per il cliente"
+                            className={`${classiSelettore} sm:min-w-40 sm:flex-1`}
                           />
                           <BottoneSalva testo="Aggiorna" />
                         </form>
 
-                        <form action={eliminaRichiesta}>
+                        <form
+                          action={eliminaRichiesta}
+                          className="border-t border-dashed border-[var(--bordo)] pt-4 sm:border-0 sm:pt-0"
+                        >
                           <input type="hidden" name="id" value={richiesta.id} />
                           <BottoneElimina />
                         </form>
@@ -295,8 +318,8 @@ export default async function PannelloAdmin() {
                         valore={piano.descrizione}
                       />
 
-                      <div className="flex flex-wrap items-end gap-5">
-                        <div className="w-24">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:gap-5">
+                        <div className="w-full sm:w-24">
                           <Campo
                             etichetta="Ordine"
                             nome="ordine"
@@ -312,7 +335,7 @@ export default async function PannelloAdmin() {
                             attivo={piano.inEvidenza}
                           />
                         </div>
-                        <div className="ml-auto">
+                        <div className="w-full sm:ml-auto sm:w-auto">
                           <BottoneSalva />
                         </div>
                       </div>
@@ -390,35 +413,48 @@ export default async function PannelloAdmin() {
                 <div className="flex flex-col gap-4">
                   {sottoscrizioni.map((sottoscrizione) => (
                     <article key={sottoscrizione.id} className={blocco}>
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <h3 className="text-[17px] font-semibold tracking-[-0.01em]">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                        <h3 className="text-[17px] font-semibold tracking-[-0.01em] break-words">
                           {sottoscrizione.abbonamento.nome}
                         </h3>
-                        <BadgeStato stato={sottoscrizione.stato} tipo="abbonamento" />
+                        <div className="self-start sm:self-auto">
+                          <BadgeStato stato={sottoscrizione.stato} tipo="abbonamento" />
+                        </div>
                       </div>
 
-                      <p className="mono mt-2.5 text-[12px] text-[var(--testo-tenue)]">
-                        {sottoscrizione.utente.username
-                          ? `@${sottoscrizione.utente.username}`
-                          : sottoscrizione.utente.telegramId}
-                        {" · "}
-                        {formattaPrezzo(
-                          sottoscrizione.abbonamento.prezzoCentesimi,
-                          sottoscrizione.abbonamento.valuta,
-                        )}
-                        {" · "}
-                        {sottoscrizione.creatoIl.toLocaleDateString("it-IT")}
-                      </p>
+                      {/* In colonna su mobile: i tre dati separati da "·" su una
+                          riga sola diventano illeggibili quando vanno a capo. */}
+                      <dl className="mono mt-3 flex flex-col gap-1 text-[13px] text-[var(--testo-tenue)] sm:mt-2.5 sm:flex-row sm:gap-2 sm:text-[12px]">
+                        <dd className="break-words">
+                          {sottoscrizione.utente.username
+                            ? `@${sottoscrizione.utente.username}`
+                            : sottoscrizione.utente.telegramId}
+                        </dd>
+                        <dd className="hidden sm:block" aria-hidden="true">
+                          ·
+                        </dd>
+                        <dd>
+                          {formattaPrezzo(
+                            sottoscrizione.abbonamento.prezzoCentesimi,
+                            sottoscrizione.abbonamento.valuta,
+                          )}
+                        </dd>
+                        <dd className="hidden sm:block" aria-hidden="true">
+                          ·
+                        </dd>
+                        <dd>{sottoscrizione.creatoIl.toLocaleDateString("it-IT")}</dd>
+                      </dl>
 
                       <form
                         action={aggiornaStatoSottoscrizione}
-                        className="mt-4 flex flex-wrap gap-2.5"
+                        className="mt-4 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap"
                       >
                         <input type="hidden" name="id" value={sottoscrizione.id} />
                         <select
                           name="stato"
                           defaultValue={sottoscrizione.stato}
-                          className={`${classiSelettore} w-auto`}
+                          aria-label="Stato della sottoscrizione"
+                          className={`${classiSelettore} sm:w-auto`}
                         >
                           {Object.entries(etichetteStatoAbbonamento).map(
                             ([valore, etichetta]) => (
@@ -455,8 +491,8 @@ export default async function PannelloAdmin() {
                         nome="descrizione"
                         valore={servizio.descrizione}
                       />
-                      <div className="flex flex-wrap items-end gap-5">
-                        <div className="w-24">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:gap-5">
+                        <div className="w-full sm:w-24">
                           <Campo
                             etichetta="Ordine"
                             nome="ordine"
@@ -467,12 +503,12 @@ export default async function PannelloAdmin() {
                         <div className="pb-2.5">
                           <Spunta etichetta="Attivo" nome="attivo" attivo={servizio.attivo} />
                         </div>
-                        <div className="ml-auto">
+                        <div className="w-full sm:ml-auto sm:w-auto">
                           <BottoneSalva />
                         </div>
                       </div>
                     </form>
-                    <form action={eliminaServizio} className="mt-4">
+                    <form action={eliminaServizio} className="mt-5 border-t border-dashed border-[var(--bordo)] pt-4">
                       <input type="hidden" name="id" value={servizio.id} />
                       <BottoneElimina />
                     </form>
@@ -509,8 +545,8 @@ export default async function PannelloAdmin() {
                         nome="descrizione"
                         valore={vantaggio.descrizione}
                       />
-                      <div className="flex flex-wrap items-end gap-5">
-                        <div className="w-24">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:gap-5">
+                        <div className="w-full sm:w-24">
                           <Campo
                             etichetta="Ordine"
                             nome="ordine"
@@ -521,12 +557,12 @@ export default async function PannelloAdmin() {
                         <div className="pb-2.5">
                           <Spunta etichetta="Attivo" nome="attivo" attivo={vantaggio.attivo} />
                         </div>
-                        <div className="ml-auto">
+                        <div className="w-full sm:ml-auto sm:w-auto">
                           <BottoneSalva />
                         </div>
                       </div>
                     </form>
-                    <form action={eliminaVantaggio} className="mt-4">
+                    <form action={eliminaVantaggio} className="mt-5 border-t border-dashed border-[var(--bordo)] pt-4">
                       <input type="hidden" name="id" value={vantaggio.id} />
                       <BottoneElimina />
                     </form>
@@ -561,8 +597,8 @@ export default async function PannelloAdmin() {
                         valore={voce.risposta}
                         righe={3}
                       />
-                      <div className="flex flex-wrap items-end gap-5">
-                        <div className="w-24">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:gap-5">
+                        <div className="w-full sm:w-24">
                           <Campo
                             etichetta="Ordine"
                             nome="ordine"
@@ -573,12 +609,12 @@ export default async function PannelloAdmin() {
                         <div className="pb-2.5">
                           <Spunta etichetta="Attiva" nome="attiva" attivo={voce.attiva} />
                         </div>
-                        <div className="ml-auto">
+                        <div className="w-full sm:ml-auto sm:w-auto">
                           <BottoneSalva />
                         </div>
                       </div>
                     </form>
-                    <form action={eliminaFaq} className="mt-4">
+                    <form action={eliminaFaq} className="mt-5 border-t border-dashed border-[var(--bordo)] pt-4">
                       <input type="hidden" name="id" value={voce.id} />
                       <BottoneElimina />
                     </form>
@@ -616,8 +652,8 @@ export default async function PannelloAdmin() {
                         <Campo etichetta="URL" nome="url" valore={contatto.url} />
                         <SelettoreIcona nome="icona" valore={contatto.icona} />
                       </div>
-                      <div className="flex flex-wrap items-end gap-5">
-                        <div className="w-24">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:gap-5">
+                        <div className="w-full sm:w-24">
                           <Campo
                             etichetta="Ordine"
                             nome="ordine"
@@ -628,12 +664,12 @@ export default async function PannelloAdmin() {
                         <div className="pb-2.5">
                           <Spunta etichetta="Attivo" nome="attivo" attivo={contatto.attivo} />
                         </div>
-                        <div className="ml-auto">
+                        <div className="w-full sm:ml-auto sm:w-auto">
                           <BottoneSalva />
                         </div>
                       </div>
                     </form>
-                    <form action={eliminaContatto} className="mt-4">
+                    <form action={eliminaContatto} className="mt-5 border-t border-dashed border-[var(--bordo)] pt-4">
                       <input type="hidden" name="id" value={contatto.id} />
                       <BottoneElimina />
                     </form>

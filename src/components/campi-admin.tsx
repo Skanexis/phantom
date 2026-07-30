@@ -1,8 +1,15 @@
+/**
+ * text-base (16px) sotto sm: iOS Safari ingrandisce automaticamente la
+ * pagina quando un campo ha caratteri più piccoli di 16px, e l'utente si
+ * ritrova fuori inquadratura a ogni tocco. Da sm in su si torna a 12.5px.
+ *
+ * min-h-11 garantisce il bersaglio di 44px raccomandato per il tocco.
+ */
 const classiCampo =
-  "mono w-full border border-[var(--bordo)] bg-[var(--sfondo)] px-3.5 py-2.5 text-[12.5px] text-[var(--testo)] outline-none transition-colors placeholder:text-[var(--testo-debole)] focus:border-[var(--accento)]";
+  "mono w-full min-h-11 border border-[var(--bordo)] bg-[var(--sfondo)] px-3.5 py-2.5 text-base text-[var(--testo)] outline-none transition-colors placeholder:text-[var(--testo-debole)] focus:border-[var(--accento)] focus-visible:ring-2 focus-visible:ring-[var(--accento)] focus-visible:ring-offset-0 sm:text-[12.5px]";
 
 const classiEtichetta =
-  "mono text-[10px] uppercase tracking-[0.14em] text-[var(--testo-debole)]";
+  "mono text-[11px] uppercase tracking-[0.14em] text-[var(--testo-tenue)] sm:text-[10px]";
 
 export function Campo({
   etichetta,
@@ -73,24 +80,26 @@ export function Spunta({
   nome: string;
   attivo: boolean;
 }) {
+  // L'intera etichetta è il bersaglio del tocco, non solo il quadratino.
   return (
-    <label className="mono flex items-center gap-2 text-[12px] uppercase tracking-[0.08em]">
+    <label className="mono flex min-h-11 cursor-pointer select-none items-center gap-2.5 text-[12.5px] uppercase tracking-[0.08em] sm:min-h-0 sm:text-[12px]">
       <input
         type="checkbox"
         name={nome}
         defaultChecked={attivo}
-        className="h-3.5 w-3.5 accent-[var(--accento)]"
+        className="h-5 w-5 shrink-0 accent-[var(--accento)] sm:h-3.5 sm:w-3.5"
       />
       {etichetta}
     </label>
   );
 }
 
+/** min-h-11 = 44px, la soglia sotto la quale il tocco diventa impreciso. */
 export function BottoneSalva({ testo = "Salva" }: { testo?: string }) {
   return (
     <button
       type="submit"
-      className="mono spinta border border-[var(--bordo-pieno)] bg-[var(--bordo-pieno)] px-5 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--testo-inverso)]"
+      className="mono spinta min-h-11 w-full border border-[var(--bordo-pieno)] bg-[var(--bordo-pieno)] px-5 py-2.5 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--testo-inverso)] sm:w-auto sm:text-[11px]"
     >
       {testo}
     </button>
@@ -101,7 +110,7 @@ export function BottoneElimina({ testo = "Elimina" }: { testo?: string }) {
   return (
     <button
       type="submit"
-      className="mono border border-[var(--bordo)] px-4 py-2.5 text-[11px] uppercase tracking-[0.12em] text-[var(--testo-tenue)] transition-colors hover:border-[var(--allarme)] hover:text-[var(--allarme)]"
+      className="mono min-h-11 w-full border border-[var(--bordo)] px-4 py-2.5 text-[12px] uppercase tracking-[0.12em] text-[var(--testo-tenue)] transition-colors hover:border-[var(--allarme)] hover:text-[var(--allarme)] sm:w-auto sm:text-[11px]"
     >
       {testo}
     </button>

@@ -112,14 +112,47 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const webApp = window.Telegram?.WebApp;
-    if (webApp) {
-      webApp.ready();
-      webApp.expand();
-    }
+    let annullato = false;
+    let tentativi = 0;
+
+    /**
+     * Lo script di Telegram è caricato con strategy="afterInteractive": può
+     * non essere ancora presente al primo effect. Dentro Telegram, leggere
+     * window.Telegram troppo presto darebbe initData vuoto e l'utente
+     * risulterebbe non autenticato nella Mini App.
+     *
+     * Fuori da Telegram l'oggetto non arriverà mai: dopo ~1,5 s smetto di
+     * attendere e proseguo come sessione da browser.
+     */
+    const MAX_TENTATIVI = 30;
+    const ATTESA_MS = 50;
+
+    const avvia = () => {
+      if (annullato) return;
+
+      const webApp = window.Telegram?.WebApp;
+
+      if (webApp) {
+        webApp.ready();
+        webApp.expand();
+        void aggiorna();
+        return;
+      }
+
+      if (tentativi++ < MAX_TENTATIVI) {
+        setTimeout(avvia, ATTESA_MS);
+        return;
+      }
+
+      void aggiorna();
+    };
+
     // Rimandato di un tick: evita il setState sincrono durante l'effect.
-    const id = setTimeout(aggiorna, 0);
-    return () => clearTimeout(id);
+    const id = setTimeout(avvia, 0);
+    return () => {
+      annullato = true;
+      clearTimeout(id);
+    };
   }, [aggiorna]);
 
   return (

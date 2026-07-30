@@ -12,8 +12,10 @@
   --sfondo-alt: #101010;
   --superficie: #141414;
   --testo: #f5f5f0;
-  --testo-tenue: #8a8a82;
-  --testo-debole: #5c5c56;
+  --testo-tenue: #9a9a92;
+  /* Era #5c5c56: contrasto 3.4:1 sul fondo scuro, sotto la soglia AA di
+     4.5:1 e illeggibile su schermo piccolo alla luce del giorno. */
+  --testo-debole: #7a7a72;
   --testo-inverso: #0a0a0a;
   --bordo: #2a2a28;
   --bordo-forte: #3d3d3a;
@@ -31,8 +33,9 @@
   --sfondo-alt: #e9e9e4;
   --superficie: #ffffff;
   --testo: #0a0a0a;
-  --testo-tenue: #55554e;
-  --testo-debole: #8a8a82;
+  --testo-tenue: #4a4a44;
+  /* Era #8a8a82: 2.9:1 sul fondo chiaro, il caso peggiore di tutti. */
+  --testo-debole: #6b6b64;
   --testo-inverso: #f5f5f0;
   --bordo: #d2d2cb;
   --bordo-forte: #a8a8a0;
@@ -102,6 +105,14 @@ body {
   background-size: 72px 72px;
 }
 
+/* Maglia più fitta su schermo stretto: a 72px si vedrebbero due o tre
+   linee in tutto, che sembrano un difetto invece di una trama. */
+@media (max-width: 640px) {
+  .reticolo {
+    background-size: 44px 44px;
+  }
+}
+
 /* Linee di margine verticali come su un foglio tecnico. */
 .colonne::before,
 .colonne::after {
@@ -142,15 +153,33 @@ body {
     border-color 0.14s ease;
 }
 
-.spinta:hover {
-  transform: translate(-3px, -3px);
-  box-shadow: 3px 3px 0 var(--bordo-pieno);
-  border-color: var(--bordo-pieno);
+/* Solo su dispositivi con puntatore vero: sul touch il :hover resta
+   "incollato" dopo il tocco e il pulsante rimane spostato. */
+@media (hover: hover) and (pointer: fine) {
+  .spinta:hover {
+    transform: translate(-3px, -3px);
+    box-shadow: 3px 3px 0 var(--bordo-pieno);
+    border-color: var(--bordo-pieno);
+  }
 }
 
 .spinta:active {
   transform: translate(0, 0);
   box-shadow: 0 0 0 var(--bordo-pieno);
+}
+
+/* Riscontro visivo al tocco, dove l'hover non esiste. */
+@media (hover: none) {
+  .spinta:active {
+    border-color: var(--bordo-pieno);
+    opacity: 0.85;
+  }
+}
+
+/* Contorno di messa a fuoco visibile per chi naviga da tastiera. */
+:focus-visible {
+  outline: 2px solid var(--accento);
+  outline-offset: 2px;
 }
 
 /* Marcatura ad angolo, come i crocini di stampa. */

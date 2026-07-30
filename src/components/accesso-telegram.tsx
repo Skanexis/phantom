@@ -27,6 +27,8 @@ export function AccessoTelegram({
   const [errore, setErrore] = useState<string | null>(null);
   const intervallo = useRef<ReturnType<typeof setInterval> | null>(null);
   const scadenza = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Popolata da avvia(): permette di forzare una verifica fuori dal ciclo.
+  const verificaOra = useRef<(() => void) | null>(null);
   const router = useRouter();
   const { aggiorna } = useTelegram();
 
@@ -39,16 +41,42 @@ export function AccessoTelegram({
 
   useEffect(() => fermaAttesa, [fermaAttesa]);
 
+  // I browser rallentano setInterval nelle schede in secondo piano fino a
+  // una volta al minuto: tornando dal bot l'utente aspetterebbe a vuoto,
+  // convinto che l'accesso non sia riuscito. Al rientro verifico subito.
+  useEffect(() => {
+    if (fase !== "attesa") return;
+
+    const alRientro = () => {
+      if (document.visibilityState === "visible") verificaOra.current?.();
+    };
+
+    document.addEventListener("visibilitychange", alRientro);
+    window.addEventListener("focus", alRientro);
+    return () => {
+      document.removeEventListener("visibilitychange", alRientro);
+      window.removeEventListener("focus", alRientro);
+    };
+  }, [fase]);
+
   const avvia = useCallback(async () => {
     vibra();
     setFase("generazione");
     setErrore(null);
+
+    // La scheda va aperta ORA, nel gesto di clic: dopo il primo await il
+    // browser non collega più window.open al clic e blocca il popup. Resta
+    // vuota per una frazione di secondo, poi le assegno l'URL definitivo.
+    const webApp = window.Telegram?.WebApp;
+    const dentroTelegram = Boolean(webApp?.openTelegramLink);
+    const scheda = dentroTelegram ? null : window.open("", "_blank", "noopener");
 
     try {
       const risposta = await fetch("/api/auth/collega", { method: "POST" });
       const dati = await risposta.json().catch(() => null);
 
       if (!risposta.ok || !dati?.url) {
+        scheda?.close();
         setFase("errore");
         setErrore(dati?.errore ?? "Impossibile avviare il collegamento.");
         return;
@@ -57,22 +85,34 @@ export function AccessoTelegram({
       setUrlBot(dati.url);
       setFase("attesa");
 
-      // Dentro Telegram uso l'API nativa, altrimenti una scheda del browser.
-      const webApp = window.Telegram?.WebApp;
-      if (webApp?.openTelegramLink) webApp.openTelegramLink(dati.url);
-      else window.open(dati.url, "_blank", "noopener");
+      // Dentro Telegram uso l'API nativa, altrimenti la scheda già aperta.
+      if (dentroTelegram) {
+        webApp!.openTelegramLink!(dati.url);
+      } else if (scheda && !scheda.closed) {
+        scheda.location.href = dati.url;
+      }
+      // Se il popup è stato bloccato comunque, resta il pulsante "Riapri il
+      // bot": è un <a> in un clic diretto, che nessun browser blocca.
 
-      intervallo.current = setInterval(async () => {
+      let inCorso = false;
+
+      const verifica = async () => {
+        // Evita richieste sovrapposte quando il rientro sulla scheda
+        // coincide con un giro del ciclo.
+        if (inCorso) return;
+        inCorso = true;
+
         try {
-          const verifica = await fetch("/api/auth/collega", {
+          const risposta = await fetch("/api/auth/collega", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ token: dati.token }),
           });
-          const esito = await verifica.json().catch(() => null);
+          const esito = await risposta.json().catch(() => null);
 
           if (esito?.stato === "collegato") {
             fermaAttesa();
+            verificaOra.current = null;
             setFase("collegato");
             vibra("successo");
             await aggiorna();
@@ -80,8 +120,13 @@ export function AccessoTelegram({
           }
         } catch {
           // Errore di rete temporaneo: il ciclo riprova al giro successivo.
+        } finally {
+          inCorso = false;
         }
-      }, INTERVALLO_MS);
+      };
+
+      verificaOra.current = verifica;
+      intervallo.current = setInterval(verifica, INTERVALLO_MS);
 
       scadenza.current = setTimeout(() => {
         fermaAttesa();
@@ -89,6 +134,7 @@ export function AccessoTelegram({
         setErrore("Tempo scaduto. Genera un nuovo link di accesso.");
       }, SCADENZA_MS);
     } catch {
+      scheda?.close();
       setFase("errore");
       setErrore("Connessione non riuscita. Riprova.");
     }

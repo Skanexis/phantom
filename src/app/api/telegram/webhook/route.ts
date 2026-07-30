@@ -1,7 +1,20 @@
+import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { inviaMessaggio } from "@/lib/telegram-bot";
 import { confermaToken } from "@/lib/collegamento";
 import { escapeHtml } from "@/lib/notifiche";
+
+/**
+ * Confronto a tempo costante: un `!==` si ferma al primo carattere diverso,
+ * e la differenza di tempo misurabile permette di ricostruire il segreto
+ * un carattere alla volta.
+ */
+function confrontoSicuro(a: string, b: string) {
+  const bufferA = Buffer.from(a);
+  const bufferB = Buffer.from(b);
+  if (bufferA.length !== bufferB.length) return false;
+  return crypto.timingSafeEqual(bufferA, bufferB);
+}
 
 type Aggiornamento = {
   message?: {
@@ -23,7 +36,7 @@ export async function POST(richiesta: Request) {
     const segretoRicevuto = richiesta.headers.get(
       "x-telegram-bot-api-secret-token",
     );
-    if (segretoRicevuto !== segretoAtteso) {
+    if (!segretoRicevuto || !confrontoSicuro(segretoRicevuto, segretoAtteso)) {
       return NextResponse.json({ errore: "Non autorizzato." }, { status: 401 });
     }
   }
