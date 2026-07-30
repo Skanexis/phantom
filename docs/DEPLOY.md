@@ -1,10 +1,24 @@
 # Deploy su VPS — phantom-lab.eu
 
-Guida completa per pubblicare Phantom Lab su un server Ubuntu 22.04/24.04.
+Guida per pubblicare Phantom Lab su un server Ubuntu 22.04/24.04.
 
 **Cosa otterrai:** sito su `https://phantom-lab.eu`, chiuso al pubblico con una pagina di attesa, accessibile a chi conosce la password tramite doppio clic sul logo.
 
-**Tempo stimato:** 45–60 minuti.
+**Tempo stimato:** 30–45 minuti su un server pulito.
+
+---
+
+## Percorso rapido
+
+Se il server ha già Node, PostgreSQL, Nginx e PM2 installati, l'intera procedura si riduce a tre comandi:
+
+```bash
+cd /var/www/phantomlab
+bash deploy/installa.sh          # dipendenze, database, build, avvio
+sudo bash deploy/configura-nginx.sh   # Nginx, certificato, HTTPS
+```
+
+Gli script si fermano al primo problema e spiegano cosa correggere. Il resto della guida serve per la prima installazione e per capire cosa fanno.
 
 ---
 
@@ -25,7 +39,7 @@ Guida completa per pubblicare Phantom Lab su un server Ubuntu 22.04/24.04.
 
 **3. Non inventare le password.** Dove la guida dice di generarle con `openssl`, fallo: password con `@`, `:`, `/`, `#` rompono gli URL di connessione e producono errori difficili da diagnosticare.
 
-**4. Se un comando fallisce, fermati.** Proseguire con un passo fallito moltiplica gli errori. Ogni sezione ha un riquadro «errori comuni» a fine paragrafo.
+**4. Se un comando fallisce, fermati.** Proseguire con un passo fallito moltiplica gli errori.
 
 ---
 
@@ -38,14 +52,15 @@ Guida completa per pubblicare Phantom Lab su un server Ubuntu 22.04/24.04.
 5. [Codice dell'applicazione](#5-codice-dellapplicazione)
 6. [Database PostgreSQL](#6-database-postgresql)
 7. [Variabili d'ambiente](#7-variabili-dambiente)
-8. [Build e primo avvio](#8-build-e-primo-avvio)
+8. [Installazione e avvio](#8-installazione-e-avvio)
 9. [Nginx e HTTPS](#9-nginx-e-https)
 10. [Bot Telegram](#10-bot-telegram)
 11. [Verifica finale](#11-verifica-finale)
 12. [Accesso a sito chiuso](#12-accesso-a-sito-chiuso)
 13. [Aggiornamenti](#13-aggiornamenti)
-14. [Backup](#14-backup)
-15. [Risoluzione problemi](#15-risoluzione-problemi)
+14. [Reinstallazione pulita](#14-reinstallazione-pulita)
+15. [Backup](#15-backup)
+16. [Risoluzione problemi](#16-risoluzione-problemi)
 
 ---
 
@@ -74,7 +89,7 @@ dig +short phantom-lab.eu
 dig +short www.phantom-lab.eu
 ```
 
-> Entrambi devono restituire l'IP del VPS. **Non proseguire al passo 9 (HTTPS) prima che il DNS risponda correttamente**: Certbot fallirebbe.
+> Entrambi devono restituire l'IP del VPS. **Non proseguire al passo 9 (HTTPS) prima che il DNS risponda correttamente**: Certbot fallirebbe. Lo script `configura-nginx.sh` controlla il DNS e si ferma se non è pronto.
 
 ---
 
@@ -92,7 +107,7 @@ apt update && apt upgrade -y
 
 ### Crea un utente non privilegiato
 
-Lavorare come `root` è rischioso: un comando sbagliato non ha rete di protezione.
+Lavorare come `root` è rischioso: un comando sbagliato non ha rete di protezione. **L'applicazione deve girare con questo utente, non con root.**
 
 ```bash
 adduser phantom
@@ -145,7 +160,7 @@ npm -v
 ### Nginx, PostgreSQL, Git e utilità
 
 ```bash
-sudo apt install -y nginx postgresql postgresql-contrib git ufw
+sudo apt install -y nginx postgresql postgresql-contrib git ufw curl dnsutils
 ```
 
 ### PM2 (gestore di processi)
@@ -172,25 +187,13 @@ Scegli **uno** dei due percorsi:
 
 ⚠️ **Questi comandi si eseguono in locale, non sul VPS.**
 
-Apri il terminale nella cartella del progetto:
-
 ```bash
 cd "c:/Users/be4ho/Desktop/WORK/Phantomlab"
-```
-
-Verifica che Git sia installato:
-
-```bash
 git --version
-```
-
-> Se manca, scaricalo da [git-scm.com](https://git-scm.com/download/win).
-
-Inizializza il repository:
-
-```bash
 git init -b main
 ```
+
+> Se Git manca, scaricalo da [git-scm.com](https://git-scm.com/download/win).
 
 #### Passo 2 — Controlla cosa stai per committare
 
@@ -203,7 +206,7 @@ git status
 
 Nell'elenco **non devono comparire**: `.env`, `node_modules/`, `.next/`, `src/generated/`.
 
-Se `.env` compare, fermati e verifica il `.gitignore`:
+Se `.env` compare, fermati:
 
 ```bash
 git rm --cached .env
@@ -216,7 +219,7 @@ grep -n "^\.env" .gitignore
 git -c user.name="Il Tuo Nome" -c user.email="tua@email.com" commit -m "Phantom Lab: versione iniziale"
 ```
 
-> Per non ripetere `-c` ogni volta, configura Git una tantum:
+> Per non ripetere `-c` ogni volta:
 > ```bash
 > git config --global user.name "Il Tuo Nome"
 > git config --global user.email "tua@email.com"
@@ -224,41 +227,35 @@ git -c user.name="Il Tuo Nome" -c user.email="tua@email.com" commit -m "Phantom 
 
 #### Passo 4 — Crea il repository remoto
 
-Su [GitHub](https://github.com/new) crea un repository **privato** (il codice contiene la logica del gate di accesso):
+Su [GitHub](https://github.com/new) crea un repository **privato**:
 
 - Nome: `phantomlab`
 - Visibilità: **Private**
-- **Non** aggiungere README, .gitignore o licenza: il progetto li ha già.
-
-Collega e invia:
+- **Non** aggiungere README, .gitignore o licenza.
 
 ```bash
 git remote add origin https://github.com/TUO_UTENTE/phantomlab.git
 git push -u origin main
 ```
 
-> GitHub non accetta più la password dell'account: alla richiesta di credenziali usa un **Personal Access Token** ([crealo qui](https://github.com/settings/tokens) con permesso `repo`).
+> GitHub non accetta più la password dell'account: usa un **Personal Access Token** ([crealo qui](https://github.com/settings/tokens) con permesso `repo`).
 
 #### Passo 5 — Accesso del VPS al repository privato
 
-Sul **VPS**, genera una chiave SSH:
+Sul **VPS**, come utente `phantom`:
 
 ```bash
 ssh-keygen -t ed25519 -C "vps-phantomlab" -f ~/.ssh/id_ed25519 -N ""
 cat ~/.ssh/id_ed25519.pub
 ```
 
-Copia la chiave stampata e aggiungila su GitHub come **Deploy key**:
-
-`Repository → Settings → Deploy keys → Add deploy key` — incolla, lascia la scrittura disabilitata, conferma.
-
-Verifica la connessione:
+Copia la chiave e aggiungila su GitHub: `Repository → Settings → Deploy keys → Add deploy key`.
 
 ```bash
 ssh -T git@github.com
 ```
 
-> Atteso: `Hi TUO_UTENTE/phantomlab! You've successfully authenticated...`. Alla prima connessione conferma con `yes`.
+> Atteso: `Hi TUO_UTENTE/phantomlab! You've successfully authenticated...`
 
 #### Passo 6 — Clona sul VPS
 
@@ -270,20 +267,18 @@ git clone git@github.com:TUO_UTENTE/phantomlab.git phantomlab
 cd phantomlab
 ```
 
-Prosegui al [passo 5C](#5c-installazione-dipendenze).
-
 ---
 
 ### 5B. Senza Git
 
-Sul **VPS**, prepara la cartella:
+Sul **VPS**:
 
 ```bash
 sudo mkdir -p /var/www/phantomlab
 sudo chown phantom:phantom /var/www/phantomlab
 ```
 
-Sul **TUO computer**, invia i file:
+Sul **TUO computer**:
 
 ```bash
 cd "c:/Users/be4ho/Desktop/WORK/Phantomlab"
@@ -297,96 +292,172 @@ rsync -avz --delete \
   ./ phantom@IP_DEL_TUO_VPS:/var/www/phantomlab/
 ```
 
-> `rsync` non è disponibile su Windows di base. Alternative:
-> - **Git Bash** include `scp`: `scp -r ./* phantom@IP:/var/www/phantomlab/`
-> - **WinSCP** ([winscp.net](https://winscp.net)), interfaccia grafica: escludi manualmente `node_modules`, `.next`, `.env`, `src/generated`.
-
-> ⚠️ Con questo metodo ogni aggiornamento richiede di ripetere il trasferimento a mano. Se prevedi di aggiornare spesso, il percorso 5A conviene.
+> `rsync` non è disponibile su Windows di base. Alternative: **Git Bash** (`scp -r ./* phantom@IP:/var/www/phantomlab/`) o **WinSCP** escludendo a mano `node_modules`, `.next`, `.env`, `src/generated`.
 
 ---
 
-### 5C. Installazione dipendenze
+### 5C. Proprietà dei file
 
-> **Stai lavorando come `root`?** Guarda il prompt: se vedi `root@...#` invece di `phantom@...$`, i file appena clonati appartengono a `root`. L'app girerà con l'utente `phantom` e non potrà scrivere dove serve.
->
-> Sistema la proprietà dei file:
+> **Stai lavorando come `root`?** Guarda il prompt: se vedi `root@...#`, i file appena clonati appartengono a `root` e l'app girerà con l'utente `phantom` senza poter scrivere dove serve.
 >
 > ```bash
 > chown -R phantom:phantom /var/www/phantomlab
-> ```
->
-> Poi passa all'utente corretto e prosegui da lì:
->
-> ```bash
 > su - phantom
 > cd /var/www/phantomlab
 > ```
->
-> Se preferisci restare come `root`, il deploy funziona comunque, ma in `ecosystem.config.js` e negli script di backup i percorsi vanno adattati — ed è una pratica meno sicura.
 
-Sul VPS, dentro `/var/www/phantomlab`:
+Lo script `installa.sh` si rifiuta di partire come root proprio per evitare questo problema.
 
-```bash
-cd /var/www/phantomlab
-npm ci
-```
+---
 
-**Output atteso:** `added NNN packages in ...`
+## 6. Database PostgreSQL
 
-> Gli avvisi `npm warn ERESOLVE` sono normali e non compromettono l'installazione.
+> **Genera la password, non inventarla.** Se contiene `@`, `:`, `/`, `#` o `?`, l'URL di connessione si rompe e ottieni errori incomprensibili come `invalid integer value "ON" for connection option "port"`.
 
-<details>
-<summary><b>Errore: "npm ci can only install packages when your package.json and package-lock.json are in sync"</b></summary>
-
-Il messaggio elenca voci `Missing:` o `Invalid:` (spesso pacchetti `@emnapi/...`).
-
-**Causa:** il `package-lock.json` è disallineato rispetto a `package.json`. Capita quando le dipendenze sono state aggiunte e rimosse in momenti diversi.
-
-**Soluzione — sul TUO computer**, rigenera il lock e invialo:
-
-```bash
-cd "c:/Users/be4ho/Desktop/WORK/Phantomlab"
-rm -rf node_modules package-lock.json
-npm install
-npm ci          # deve concludersi senza errori
-git add package-lock.json
-git commit -m "Rigenera package-lock.json"
-git push
-```
-
-Poi **sul VPS**:
+### Percorso consigliato: script automatico
 
 ```bash
 cd /var/www/phantomlab
-git pull
-npm ci
+sudo bash deploy/setup-db.sh
 ```
 
-**Soluzione rapida** (se non puoi rigenerare subito dal tuo computer): sul VPS usa `npm install` al posto di `npm ci`. Funziona, ma può installare versioni leggermente diverse da quelle testate in locale.
-</details>
+Lo script genera la password, crea utente e database, verifica la connessione e stampa la riga pronta per il `.env`. È **rieseguibile**: se utente o database esistono già, reimposta la password e conserva i dati.
+
+Al termine copia la riga `DATABASE_URL="..."`: ti serve al passo 7.
 
 <details>
-<summary><b>Errore: "npm ci can only install with an existing package-lock.json"</b></summary>
+<summary><b>Procedimento manuale</b></summary>
 
-Il file `package-lock.json` non è arrivato sul server:
+Genera la password:
 
 ```bash
-ls -la package-lock.json
+openssl rand -hex 24
 ```
 
-Se manca, ricopialo dal tuo computer oppure usa `npm install`.
+Crea utente e database (sostituisci `PASSWORD_DB`):
+
+```bash
+sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+CREATE USER phantomlab WITH PASSWORD 'PASSWORD_DB';
+CREATE DATABASE phantomlab OWNER phantomlab;
+GRANT ALL PRIVILEGES ON DATABASE phantomlab TO phantomlab;
+SQL
+
+sudo -u postgres psql -d phantomlab -c "GRANT ALL ON SCHEMA public TO phantomlab;"
+```
+
+Verifica:
+
+```bash
+PGPASSWORD='PASSWORD_DB' psql -h 127.0.0.1 -U phantomlab -d phantomlab -c "SELECT version();"
+```
 </details>
 
-<details>
-<summary><b>Molti avvisi <code>npm warn ERESOLVE overriding peer dependency</code></b></summary>
+> PostgreSQL ascolta solo su `127.0.0.1`: non è raggiungibile da internet, e va bene così.
 
-Sono **avvisi, non errori**: riguardano dipendenze WASM opzionali usate solo su piattaforme senza binari nativi. Se l'installazione termina con `added NNN packages`, è andata a buon fine.
+---
+
+## 7. Variabili d'ambiente
+
+### Genera i segreti
+
+```bash
+openssl rand -base64 48   # per AUTH_SECRET
+openssl rand -hex 32      # per TELEGRAM_WEBHOOK_SECRET
+```
+
+### Crea il file `.env`
+
+```bash
+cd /var/www/phantomlab
+cp .env.example .env
+nano .env
+```
+
+Compila con i tuoi valori:
+
+```bash
+DATABASE_URL="postgresql://phantomlab:PASSWORD_GENERATA@127.0.0.1:5432/phantomlab?schema=public"
+
+TELEGRAM_BOT_TOKEN="il-token-di-BotFather"
+TELEGRAM_BOT_USERNAME="phantomlab_bot"
+TELEGRAM_ADMIN_CHAT_ID="il-tuo-chat-id"
+TELEGRAM_WEBHOOK_SECRET="il-segreto-generato"
+ADMIN_TELEGRAM_IDS="il-tuo-telegram-id"
+
+AUTH_SECRET="il-segreto-generato"
+ALLOW_DEV_LOGIN="false"
+
+SITO_CHIUSO="true"
+SITO_PASSWORD="una-password-lunga-almeno-12-caratteri"
+
+NODE_ENV="production"
+PORT="3080"
+```
+
+Salva con `Ctrl+O`, `Invio`, poi `Ctrl+X`.
+
+```bash
+chmod 600 .env
+```
+
+> **Importante:**
+> - `PORT` deve valere **3080**: è la porta verso cui Nginx fa proxy. Se le due non coincidono, il sito risponde 502.
+> - `ALLOW_DEV_LOGIN` deve restare `"false"`: con `"true"` chiunque potrebbe accedere senza Telegram.
+> - `SITO_CHIUSO="true"` è ciò che tiene il sito chiuso al pubblico.
+> - Per conoscere il tuo Telegram ID scrivi a [@userinfobot](https://t.me/userinfobot).
+
+### Come viene letto il `.env`
+
+PM2 **non** legge il `.env` da solo. Il file `ecosystem.config.js` lo carica esplicitamente all'avvio e si rifiuta di partire se mancano `DATABASE_URL`, `AUTH_SECRET` o `TELEGRAM_BOT_TOKEN`.
+
+> Conseguenza pratica: dopo ogni modifica al `.env` serve `pm2 reload phantomlab --update-env`. Un semplice `restart` conserva le vecchie variabili.
+
+---
+
+## 8. Installazione e avvio
+
+Un solo comando esegue dipendenze, verifica configurazione, migrazioni, seed, build e avvio:
+
+```bash
+cd /var/www/phantomlab
+bash deploy/installa.sh
+```
+
+Lo script si ferma al primo problema spiegando cosa correggere. Al termine l'app risponde su `http://127.0.0.1:3080`.
+
+<details>
+<summary><b>Cosa fa, passo per passo</b></summary>
+
+1. Controlla che Node, npm, PM2, psql e nginx siano installati e che Node sia almeno la versione 20.
+2. Crea `/var/log/phantomlab` con i permessi giusti.
+3. `npm ci` (o `npm install` se manca il lock).
+4. `npm run verifica-env` — diagnosi della configurazione.
+5. `npx prisma migrate deploy` e `npm run seed`.
+6. `deploy/build.sh` — compila **e copia gli asset** nella build standalone.
+7. `pm2 start ecosystem.config.js`, poi verifica che l'app risponda 200.
 </details>
 
-<details>
-<summary><b>La build o npm ci viene "Killed"</b></summary>
+### Perché la build ha un passaggio dedicato
 
-RAM insufficiente. Crea uno swap file:
+Next.js con `output: "standalone"` **non** copia `static/` e `public/` dentro `.next/standalone/`. Senza quella copia il server parte regolarmente — i log dicono `✓ Ready` — ma ogni CSS e JS risponde 404 e il browser mostra *"This page couldn't load"*.
+
+`deploy/build.sh` fa le due cose insieme e verifica il risultato. **Non lanciare mai `npm run build` da solo** per un deploy: usa sempre lo script.
+
+### Rendi PM2 persistente al riavvio
+
+```bash
+pm2 startup
+```
+
+Il comando stampa una riga che inizia con `sudo env PATH=...`: **copiala ed eseguila**.
+
+```bash
+pm2 save
+```
+
+<details>
+<summary><b>La build viene "Killed" (RAM insufficiente)</b></summary>
 
 ```bash
 sudo fallocate -l 2G /swapfile
@@ -398,357 +469,53 @@ free -h
 ```
 </details>
 
-### Cartella dei log
-
-```bash
-sudo mkdir -p /var/log/phantomlab
-sudo chown phantom:phantom /var/log/phantomlab
-```
-
----
-
-## 6. Database PostgreSQL
-
-> **Prima di iniziare, due avvertenze che evitano il 90% degli errori:**
->
-> **1. Genera la password, non inventarla.** Se contiene `@`, `:`, `/`, `#` o `?`, l'URL di connessione si rompe e ottieni errori incomprensibili come
-> `invalid integer value "ON" for connection option "port"`.
-> Il comando qui sotto genera una password sicura e priva di caratteri problematici.
->
-> **2. Attenzione al prompt.** Quando entri in `psql`, il prompt diventa `postgres=#`.
-> Lì dentro funzionano **solo** comandi SQL, non comandi Linux. Se provi a lanciare `psql` o `ls` mentre sei già dentro, non succede nulla di buono: esci prima con `\q`.
-
-### Percorso rapido: script automatico
-
-Se hai già scaricato il codice sul VPS (passo 6), un solo comando fa tutto — genera la password, crea utente e database, verifica la connessione e stampa la riga pronta per il `.env`:
-
-```bash
-cd /var/www/phantomlab
-sudo bash deploy/setup-db.sh
-```
-
-Lo script è **rieseguibile**: se utente o database esistono già, non fallisce — reimposta la password e conserva i dati.
-
-Al termine copia la riga `DATABASE_URL="..."` che compare: ti servirà al passo 7.
-
-> Se preferisci capire cosa succede o lo script dà problemi, segui il procedimento manuale qui sotto.
-
----
-
-### 6.1 Genera la password del database
-
-```bash
-openssl rand -hex 24
-```
-
-
-
-
-a96e926b212eb64d0b9c0750facc0a2faddc95d39b6a4ce9
-
-Copia il risultato (48 caratteri, solo lettere e numeri) e **conservalo**: lo userai due volte.
-
-D'ora in avanti in questa guida lo chiamo `PASSWORD_DB`.
-
-### 6.2 Crea utente e database
-
-Questo comando fa tutto in un colpo solo, **senza entrare in `psql`**. Sostituisci `PASSWORD_DB` con quella che hai appena generato:
-
-```bash
-sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
-CREATE USER phantomlab WITH PASSWORD 'PASSWORD_DB';
-CREATE DATABASE phantomlab OWNER phantomlab;
-GRANT ALL PRIVILEGES ON DATABASE phantomlab TO phantomlab;
-SQL
-```
-
-Poi assegna i permessi sullo schema:
-
-```bash
-sudo -u postgres psql -d phantomlab -c "GRANT ALL ON SCHEMA public TO phantomlab;"
-```
-
-**Output atteso:**
-
-```
-CREATE ROLE
-CREATE DATABASE
-GRANT
-GRANT
-```
-
 <details>
-<summary><b>Vedi "role already exists" o "database already exists"?</b></summary>
+<summary><b><code>npm ci</code> fallisce: "package.json and package-lock.json are not in sync"</b></summary>
 
-Significa che avevi già eseguito questi comandi in un tentativo precedente. **Non è un guasto.**
-
-Se non ricordi la password impostata allora, reimpostala:
+**Sul TUO computer**, rigenera il lock:
 
 ```bash
-sudo -u postgres psql -c "ALTER USER phantomlab WITH PASSWORD 'PASSWORD_DB';"
+cd "c:/Users/be4ho/Desktop/WORK/Phantomlab"
+rm -rf node_modules package-lock.json
+npm install
+npm ci
+git add package-lock.json && git commit -m "Rigenera package-lock.json" && git push
 ```
 
-Se preferisci ripartire da zero (⚠️ **cancella tutti i dati**):
+Poi sul VPS: `git pull && npm ci`.
 
-```bash
-sudo -u postgres psql -c "DROP DATABASE IF EXISTS phantomlab;"
-sudo -u postgres psql -c "DROP USER IF EXISTS phantomlab;"
-```
-
-Poi ripeti il passo 6.2.
+**Soluzione rapida:** sul VPS usa `npm install` al posto di `npm ci`.
 </details>
-
-### 6.3 Verifica la connessione
-
-```bash
-PGPASSWORD='PASSWORD_DB' psql -h 127.0.0.1 -U phantomlab -d phantomlab -c "SELECT version();"
-```
-
-> Uso `PGPASSWORD` invece dell'URL completo proprio per evitare i problemi di caratteri speciali.
-
-**Output atteso** — una riga che inizia con:
-
-```
-PostgreSQL 16.x on x86_64-pc-linux-gnu ...
-```
-
-<details>
-<summary><b>Errore: "invalid integer value ... for connection option port"</b></summary>
-
-L'URL di connessione è malformato, quasi sempre perché la password contiene `@`.
-
-Se hai già creato l'utente con una password che contiene caratteri speciali, la soluzione più semplice è cambiarla con una generata:
-
-```bash
-NUOVA=$(openssl rand -hex 24)
-echo "Nuova password: $NUOVA"
-sudo -u postgres psql -c "ALTER USER phantomlab WITH PASSWORD '$NUOVA';"
-```
-
-Annota la nuova password e usala nel `.env`.
-</details>
-
-<details>
-<summary><b>Errore: "Peer authentication failed"</b></summary>
-
-Stai connettendo via socket locale invece che via TCP. Assicurati di includere `-h 127.0.0.1` nel comando.
-</details>
-
-<details>
-<summary><b>Errore: "could not connect to server"</b></summary>
-
-PostgreSQL non è avviato:
-
-```bash
-sudo systemctl status postgresql
-sudo systemctl start postgresql
-```
-</details>
-
-> PostgreSQL ascolta solo su `127.0.0.1`: non è raggiungibile da internet, e va bene così.
-
----
-
-## 7. Variabili d'ambiente
-
-### Genera il segreto per le sessioni
-
-```bash
-openssl rand -base64 48
-```
-
-Copia il risultato: servirà per `AUTH_SECRET`.
-
-Genera anche un segreto per il webhook:
-
-```bash
-openssl rand -hex 32
-```
-
-### Crea il file `.env`
-
-```bash
-cd /var/www/phantomlab
-nano .env
-```
-
-Contenuto (sostituisci i valori tra virgolette):
-
-```bash
-DATABASE_URL="postgresql://phantomlab:4ab8845c2d6e1154d5ecc1b48cb7fb10f8abea69ad9367a7@127.0.0.1:5432/phantomlab?schema=public"
-
-TELEGRAM_BOT_TOKEN="8548139085:AAHVxSCgdWITI-lcpsNRCeleWy-tWC3bGsU"
-TELEGRAM_BOT_USERNAME="phantomlab_bot"
-TELEGRAM_ADMIN_CHAT_ID="8350911242"
-TELEGRAM_WEBHOOK_SECRET="770200d1d91066fd78243b3ece470e93c58dda9bc8695f3845ee8c22cf6ec7bc"
-ADMIN_TELEGRAM_IDS="8350911242"
-
-AUTH_SECRET="pyBfLFFblPeST5n9j/G6f92y3nfRxD0szY2/FVZ2B1Rge9J48vo4EKh1LSMu4Itw"
-ALLOW_DEV_LOGIN="false"
-
-SITO_CHIUSO="true"
-SITO_PASSWORD="020280"
-
-NODE_ENV="production"
-PORT="3080"
-```
-
-Salva con `Ctrl+O`, `Invio`, poi `Ctrl+X`.
-
-### Proteggi il file
-
-```bash
-chmod 600 .env
-```
-
-> **Importante:**
-> - `ALLOW_DEV_LOGIN` deve restare `"false"`: con `"true"` chiunque potrebbe accedere senza Telegram.
-> - `SITO_CHIUSO="true"` è ciò che tiene il sito chiuso al pubblico.
-> - Per conoscere il tuo Telegram ID scrivi a [@userinfobot](https://t.me/userinfobot).
-
-### Verifica la configurazione
-
-Prima di procedere, un controllo automatico segnala valori mancanti o sospetti:
-
-```bash
-cd /var/www/phantomlab
-npm run verifica-env
-```
-
-**Output atteso:** `Configurazione valida.`
-
-Se qualcosa non va, lo script indica quale variabile correggere e perché. Sistemala e riesegui prima di continuare.
-
----
-
-## 8. Build e primo avvio
-
-### Applica le migrazioni
-
-```bash
-cd /var/www/phantomlab
-npx prisma migrate deploy
-npx prisma generate
-```
-
-### Popola i contenuti iniziali
-
-```bash
-npm run seed
-```
-
-### Compila
-
-```bash
-npm run build
-```
-
-> Se la build viene interrotta per memoria insufficiente, crea uno swap file:
-> ```bash
-> sudo fallocate -l 2G /swapfile
-> sudo chmod 600 /swapfile
-> sudo mkswap /swapfile
-> sudo swapon /swapfile
-> echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-> ```
-
-### Copia gli asset nella build standalone
-
-Next.js in modalità `standalone` **non** include `static/` e `public/`: vanno copiati.
-
-```bash
-cp -r .next/static .next/standalone/.next/
-cp -r public .next/standalone/ 2>/dev/null || true
-```
-
-### Avvia con PM2
-
-```bash
-pm2 start ecosystem.config.js
-pm2 save
-pm2 startup
-```
-
-L'ultimo comando stampa una riga che inizia con `sudo env PATH=...`: **copiala ed eseguila**, serve ad avviare l'app al riavvio del server.
-
-### Verifica che risponda
-
-```bash
-curl -I http://127.0.0.1:3080
-pm2 status
-pm2 logs phantomlab --lines 30
-```
-
-Attesa: `HTTP/1.1 200 OK`.
 
 ---
 
 ## 9. Nginx e HTTPS
 
-### Configurazione temporanea (solo HTTP)
-
-Serve per far validare il dominio a Certbot.
+Un solo comando gestisce l'intera configurazione, compreso il certificato:
 
 ```bash
-sudo nano /etc/nginx/sites-available/phantom-lab.eu
+sudo bash deploy/configura-nginx.sh
 ```
 
-Incolla:
+<details>
+<summary><b>Cosa fa, passo per passo</b></summary>
 
-```nginx
-server {
-    listen 80;
-    listen [::]:80;
-    server_name phantom-lab.eu www.phantom-lab.eu;
+1. **Verifica il DNS**: confronta l'IP del server con quello a cui punta il dominio, e si ferma se non corrispondono (Certbot fallirebbe).
+2. **Installa la map `$connection_upgrade`** in `/etc/nginx/conf.d/`, saltandola se un altro sito la definisce già.
+3. **Configurazione provvisoria in HTTP**, necessaria perché Certbot possa validare il dominio.
+4. **Ottiene il certificato** con `certbot certonly --webroot`, che non tocca la configurazione di Nginx.
+5. **Applica `deploy/nginx.conf`** e verifica che il sito risponda 200.
+</details>
 
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
+### Il dettaglio che rompeva il sito
 
-    location / {
-        proxy_pass http://127.0.0.1:3080;
-        proxy_http_version 1.1;
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+Nella vecchia configurazione il blocco `/_next/static/` non inoltrava l'intestazione `Host`. Nginx passava quindi `Host: 127.0.0.1:3080`, Next.js non riconosceva la richiesta e restituiva gli asset come `text/plain`. Il browser li rifiutava:
+
+```
+Refused to execute script ... MIME type ('text/plain') is not executable
 ```
 
-Attiva il sito e rimuovi quello di default:
-
-```bash
-sudo mkdir -p /var/www/certbot
-sudo ln -s /etc/nginx/sites-available/phantom-lab.eu /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-Verifica dall'esterno: `http://phantom-lab.eu` deve mostrare la pagina di attesa.
-
-### Certificato HTTPS
-
-```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d phantom-lab.eu -d www.phantom-lab.eu
-```
-
-Rispondi alle domande:
-- **Email**: la tua, per gli avvisi di scadenza.
-- **Termini**: `Y`.
-- **Redirect HTTP → HTTPS**: scegli **2 (Redirect)**.
-
-### Configurazione definitiva
-
-Ora sostituisci con la configurazione completa del repository:
-
-```bash
-sudo cp /var/www/phantomlab/deploy/nginx.conf /etc/nginx/sites-available/phantom-lab.eu
-sudo nginx -t
-sudo systemctl reload nginx
-```
+In `deploy/nginx.conf` le intestazioni di proxy sono ora dichiarate **una sola volta a livello di `server`**, così ogni `location` le eredita e il problema non può ripresentarsi aggiungendo un blocco nuovo.
 
 ### Verifica il rinnovo automatico
 
@@ -756,6 +523,8 @@ sudo systemctl reload nginx
 sudo certbot renew --dry-run
 sudo systemctl status certbot.timer
 ```
+
+> Il blocco `:80` mantiene aperto `/.well-known/acme-challenge/` proprio per permettere i rinnovi.
 
 ---
 
@@ -766,9 +535,11 @@ sudo systemctl status certbot.timer
 Sostituisci i valori con i tuoi:
 
 ```bash
+source /var/www/phantomlab/.env
+
 curl -F "url=https://phantom-lab.eu/api/telegram/webhook" \
-     -F "secret_token=770200d1d91066fd78243b3ece470e93c58dda9bc8695f3845ee8c22cf6ec7bc" \
-     "https://api.telegram.org/bot8548139085:AAHVxSCgdWITI-lcpsNRCeleWy-tWC3bGsU/setWebhook"
+     -F "secret_token=$TELEGRAM_WEBHOOK_SECRET" \
+     "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook"
 ```
 
 Attesa: `{"ok":true,"result":true,"description":"Webhook was set"}`.
@@ -776,7 +547,8 @@ Attesa: `{"ok":true,"result":true,"description":"Webhook was set"}`.
 ### Verifica lo stato
 
 ```bash
-curl "https://api.telegram.org/bot8548139085:AAHVxSCgdWITI-lcpsNRCeleWy-tWC3bGsU/getWebhookInfo"
+source /var/www/phantomlab/.env
+curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"
 ```
 
 Controlla che `pending_update_count` sia basso e che non compaia `last_error_message`.
@@ -795,8 +567,6 @@ Su [@BotFather](https://t.me/BotFather):
 
 ## 11. Verifica finale
 
-Elenco di controllo:
-
 ```bash
 # 1. Il sito risponde in HTTPS
 curl -I https://phantom-lab.eu
@@ -804,23 +574,30 @@ curl -I https://phantom-lab.eu
 # 2. I visitatori vedono la pagina di attesa
 curl -s https://phantom-lab.eu | grep -o "In preparazione"
 
-# 3. Le API sono chiuse (atteso: 503)
+# 3. Gli asset hanno il MIME type corretto (deve dire application/javascript)
+curl -s -o /dev/null -w '%{content_type}\n' \
+  "https://phantom-lab.eu$(curl -s https://phantom-lab.eu | grep -o '/_next/static/chunks/[^"]*\.js' | head -1)"
+
+# 4. Le API sono chiuse (atteso: 503)
 curl -s -o /dev/null -w "%{http_code}\n" https://phantom-lab.eu/api/notifiche
 
-# 4. Il webhook è raggiungibile (atteso: 401 senza il segreto corretto)
+# 5. Il webhook è raggiungibile (atteso: 401 senza il segreto corretto)
 curl -s -o /dev/null -w "%{http_code}\n" -X POST https://phantom-lab.eu/api/telegram/webhook
 
-# 5. L'app è attiva e stabile
+# 6. L'app è attiva e stabile
 pm2 status
 
-# 6. Nessun errore recente
+# 7. Nessun errore recente
 pm2 logs phantomlab --lines 50 --nostream
 ```
+
+Il controllo **3** è quello che intercetta il guasto più insidioso: se restituisce `text/plain` invece di `application/javascript`, il sito si vedrà senza stile e senza interazioni.
 
 Verifica anche dal browser:
 - `https://phantom-lab.eu` → pagina di attesa con lucchetto valido
 - `https://www.phantom-lab.eu` → reindirizza al dominio senza www
 - `http://phantom-lab.eu` → reindirizza a HTTPS
+- **Console del browser (F12) senza errori rossi**
 
 ---
 
@@ -832,14 +609,12 @@ Con `SITO_CHIUSO="true"` chiunque visiti il sito vede la pagina di attesa.
 
 1. Apri `https://phantom-lab.eu`
 2. Fai **doppio clic sul quadrato verde con la P** in alto a sinistra
-3. Compare un campo password: inserisci il valore di `SITO_PASSWORD`
+3. Inserisci il valore di `SITO_PASSWORD`
 4. Premi **Entra**
 
-Il cookie di sblocco dura **30 giorni** e vale solo per quel browser. Chi non conosce la password continua a vedere la pagina di attesa: non c'è alcuna etichetta che segnali il campo nascosto.
+Il cookie di sblocco dura **30 giorni** e vale solo per quel browser. L'URL nella barra non cambia: la pagina di attesa è servita con un *rewrite*, così non rivela l'esistenza di un percorso riservato.
 
 ### Aprire il sito al pubblico
-
-Quando è il momento del lancio:
 
 ```bash
 cd /var/www/phantomlab
@@ -848,10 +623,6 @@ pm2 reload phantomlab --update-env
 ```
 
 > `--update-env` è indispensabile: senza, PM2 riavvia il processo mantenendo le vecchie variabili.
-
-### Richiudere il sito
-
-Stessa procedura con `SITO_CHIUSO="true"`.
 
 ### Uscire dalla modalità riservata su un dispositivo
 
@@ -863,12 +634,12 @@ curl -X DELETE https://phantom-lab.eu/api/gate
 
 ## 13. Aggiornamenti
 
-Lo script fa tutto: scarica, installa, migra, compila e riavvia.
-
 ```bash
 cd /var/www/phantomlab
 bash deploy/aggiorna.sh
 ```
+
+Lo script scarica, installa, migra, compila **con la copia degli asset**, riavvia e verifica che l'app risponda. Se qualcosa va storto stampa i log e esce con errore.
 
 Se preferisci procedere a mano:
 
@@ -877,20 +648,47 @@ cd /var/www/phantomlab
 git pull
 npm ci
 npx prisma migrate deploy
-npx prisma generate
-npm run build
-cp -r .next/static .next/standalone/.next/
-cp -r public .next/standalone/ 2>/dev/null || true
+bash deploy/build.sh          # NON solo `npm run build`
 pm2 reload phantomlab --update-env
 ```
 
 ---
 
-## 14. Backup
+## 14. Reinstallazione pulita
+
+Se la configurazione è compromessa e vuoi ripartire da zero:
+
+```bash
+cd /var/www/phantomlab
+sudo bash deploy/pulisci.sh
+```
+
+Lo script chiede conferma esplicita, poi:
+
+- salva `.env` e un dump del database in `/root/phantomlab-backup-<data>/`
+- rimuove il processo PM2, la cartella `/var/www/phantomlab`, i log e la configurazione Nginx del solo `phantom-lab.eu`
+- **conserva il database** (usa `--anche-database` per rimuoverlo)
+- **non tocca** gli altri siti, i certificati, PostgreSQL, Node e PM2
+
+Poi riparti dalla [sezione 5](#5-codice-dellapplicazione):
+
+```bash
+cd /var/www
+git clone git@github.com:TUO_UTENTE/phantomlab.git phantomlab
+cd phantomlab
+cp /root/phantomlab-backup-*/.env .env    # riusa la configurazione salvata
+chmod 600 .env
+bash deploy/installa.sh
+sudo bash deploy/configura-nginx.sh
+```
+
+> Il backup in `/root/` non viene cancellato: conservalo finché la nuova installazione non funziona.
+
+---
+
+## 15. Backup
 
 ### Backup automatico giornaliero
-
-Rendi eseguibile lo script e programmalo:
 
 ```bash
 chmod +x /var/www/phantomlab/deploy/backup.sh
@@ -905,13 +703,7 @@ echo "127.0.0.1:5432:phantomlab:phantomlab:LA_PASSWORD_DEL_DB" > ~/.pgpass
 chmod 600 ~/.pgpass
 ```
 
-Aggiungi il job:
-
-```bash
-crontab -e
-```
-
-Inserisci:
+Aggiungi il job con `crontab -e`:
 
 ```
 0 3 * * * /var/www/phantomlab/deploy/backup.sh >> /var/log/phantomlab/backup.log 2>&1
@@ -931,60 +723,126 @@ gunzip -c /var/backups/phantomlab/phantomlab_AAAAMMGG_HHMMSS.sql.gz | \
   psql -U phantomlab -h 127.0.0.1 phantomlab
 ```
 
-> I backup restano sul VPS: se il server si guasta, li perdi. Copiali periodicamente altrove (`scp`, rsync su altro host, storage esterno).
+> I backup restano sul VPS: se il server si guasta, li perdi. Copiali periodicamente altrove.
 
 ---
 
-## 15. Risoluzione problemi
+## 16. Risoluzione problemi
 
-> **Prima di tutto**, esegui la diagnosi automatica: segnala la maggior parte dei problemi di configurazione con la relativa soluzione.
+> **Prima di tutto**, esegui la diagnosi automatica:
 >
 > ```bash
 > cd /var/www/phantomlab
 > npm run verifica-env
 > ```
 
+### La pagina è bianca o dice "This page couldn't load"
+
+Nella console del browser (F12) vedi errori come:
+
+```
+Failed to load resource: 404   /_next/static/chunks/....js
+Refused to execute script ... MIME type ('text/plain') is not executable
+ChunkLoadError: Failed to load chunk
+```
+
+Due cause possibili, in quest'ordine:
+
+**1. Gli asset non sono nella build standalone.**
+
+```bash
+ls /var/www/phantomlab/.next/standalone/.next/static/chunks/ | head
+```
+
+Se la cartella non esiste o è vuota:
+
+```bash
+cd /var/www/phantomlab
+bash deploy/build.sh
+pm2 restart phantomlab
+```
+
+**2. Nginx non inoltra l'intestazione `Host`.**
+
+```bash
+curl -s -o /dev/null -w '%{content_type}\n' https://phantom-lab.eu/_next/static/chunks/
+```
+
+Se risponde `text/plain`, la configurazione è quella vecchia:
+
+```bash
+sudo cp /var/www/phantomlab/deploy/nginx.conf /etc/nginx/sites-available/phantom-lab.eu
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### PM2 va in crash-loop: `SyntaxError: "undefined" is not valid JSON`
+
+L'errore arriva da `ProcessUtils.js` di PM2, non dall'app. Significa che PM2 non è riuscito a leggere la configurazione.
+
+```bash
+cd /var/www/phantomlab
+node --check ecosystem.config.js     # sintassi del file
+ls -la .env                          # il file deve esistere
+pm2 delete phantomlab
+pm2 start ecosystem.config.js
+```
+
+`ecosystem.config.js` ora fallisce con un messaggio esplicito se manca il `.env` o se mancano le variabili obbligatorie, invece di lasciar partire l'app in uno stato incoerente.
+
+### Il sito è aperto a tutti nonostante `SITO_CHIUSO="true"`
+
+Il processo sta girando con variabili vecchie o senza `.env`:
+
+```bash
+cd /var/www/phantomlab
+grep SITO_CHIUSO .env               # deve dire "true"
+pm2 reload phantomlab --update-env  # NON un semplice restart
+```
+
+Verifica che il middleware sia attivo:
+
+```bash
+grep -n "return NextResponse.next()" src/middleware.ts
+```
+
+Se la prima riga del corpo della funzione è un `return NextResponse.next()` incondizionato, il gate è stato disattivato per debug: rimuovi quella riga, poi `bash deploy/build.sh && pm2 restart phantomlab`.
+
+### 502 Bad Gateway
+
+```bash
+pm2 status
+curl -I http://127.0.0.1:3080
+grep '^PORT' /var/www/phantomlab/.env
+grep -n '127.0.0.1:' /etc/nginx/sites-available/phantom-lab.eu
+```
+
+Le ultime due devono indicare la **stessa porta**. Se l'app è ferma:
+
+```bash
+pm2 logs phantomlab --lines 50
+pm2 restart phantomlab --update-env
+```
+
 ### Errori di PostgreSQL
 
-<details open>
+<details>
 <summary><b><code>invalid integer value "ON" for connection option "port"</code></b></summary>
 
-**Causa:** la password del database contiene `@` (o un altro carattere speciale). L'URL viene interpretato male: tutto ciò che segue la `@` è letto come indirizzo del server.
-
-**Soluzione** — genera una password priva di caratteri problematici:
+La password del database contiene `@` o un altro carattere speciale: tutto ciò che segue viene letto come indirizzo del server.
 
 ```bash
 NUOVA=$(openssl rand -hex 24)
 echo "Nuova password: $NUOVA"
 sudo -u postgres psql -c "ALTER USER phantomlab WITH PASSWORD '$NUOVA';"
-```
-
-Aggiorna il `.env` con la nuova password:
-
-```bash
-nano /var/www/phantomlab/.env
-```
-
-Verifica:
-
-```bash
-cd /var/www/phantomlab
+nano /var/www/phantomlab/.env    # aggiorna DATABASE_URL
 npm run verifica-env
 ```
 </details>
 
 <details>
-<summary><b><code>role "phantomlab" already exists</code> / <code>database "phantomlab" already exists</code></b></summary>
+<summary><b><code>role already exists</code> / <code>database already exists</code></b></summary>
 
-**Non è un errore bloccante:** i comandi erano già stati eseguiti.
-
-Se non ricordi la password, reimpostala:
-
-```bash
-NUOVA=$(openssl rand -hex 24)
-echo "Nuova password: $NUOVA"
-sudo -u postgres psql -c "ALTER USER phantomlab WITH PASSWORD '$NUOVA';"
-```
+**Non è un errore bloccante:** i comandi erano già stati eseguiti. Riesegui `sudo bash deploy/setup-db.sh`, che reimposta la password conservando i dati.
 
 Per ripartire da zero (⚠️ **cancella tutti i dati**):
 
@@ -996,27 +854,7 @@ sudo bash /var/www/phantomlab/deploy/setup-db.sh
 </details>
 
 <details>
-<summary><b>I comandi non fanno nulla / vedo <code>postgres=#</code></b></summary>
-
-Sei **dentro `psql`**: lì funzionano solo comandi SQL, non comandi Linux.
-
-Esci:
-
-```
-\q
-```
-
-Poi ripeti il comando dalla shell normale (`phantom@server:~$`).
-</details>
-
-<details>
-<summary><b>Il terminale mostra <code>&gt;</code> e non risponde</b></summary>
-
-Manca la chiusura di una virgoletta o di una parentesi. Premi `Ctrl+C` e riscrivi il comando.
-</details>
-
-<details>
-<summary><b><code>Peer authentication failed for user "phantomlab"</code></b></summary>
+<summary><b><code>Peer authentication failed</code></b></summary>
 
 Manca `-h 127.0.0.1`: senza, `psql` usa il socket locale con autenticazione di sistema.
 
@@ -1025,72 +863,30 @@ PGPASSWORD='LA_TUA_PASSWORD' psql -h 127.0.0.1 -U phantomlab -d phantomlab -c "S
 ```
 </details>
 
-### Errori di Git
+<details>
+<summary><b>Vedo <code>postgres=#</code> e i comandi non funzionano</b></summary>
+
+Sei **dentro `psql`**: lì funzionano solo comandi SQL. Esci con `\q`.
+</details>
+
+### Errori di Nginx
 
 <details>
-<summary><b><code>Permission denied (publickey)</code> al clone</b></summary>
+<summary><b><code>duplicate variable "connection_upgrade"</code></b></summary>
 
-La chiave SSH del VPS non è registrata su GitHub. Rivedi il passo 5A/5:
+Un altro sito sul server definisce già la stessa map:
 
 ```bash
-cat ~/.ssh/id_ed25519.pub    # copia e aggiungi come Deploy key
-ssh -T git@github.com        # verifica
+sudo rm /etc/nginx/conf.d/upgrade-map.conf
+sudo nginx -t && sudo systemctl reload nginx
 ```
 </details>
 
 <details>
-<summary><b><code>Support for password authentication was removed</code></b></summary>
+<summary><b><code>protocol options redefined for 0.0.0.0:443</code></b></summary>
 
-GitHub non accetta più la password dell'account. Crea un [Personal Access Token](https://github.com/settings/tokens) con permesso `repo` e usalo al posto della password.
+È un **avviso**, non un errore: più siti sulla stessa porta 443 ripetono le opzioni SSL. Non blocca nulla.
 </details>
-
-<details>
-<summary><b>Il file <code>.env</code> è finito nel repository</b></summary>
-
-Rimuovilo dal tracciamento e cambia **tutti** i segreti che conteneva:
-
-```bash
-git rm --cached .env
-git commit -m "Rimuove .env dal repository"
-git push
-```
-
-> Un segreto finito in un commit resta nella cronologia: vanno rigenerati token del bot, `AUTH_SECRET` e password del database.
-</details>
-
-### Il sito non risponde (502 Bad Gateway)
-
-```bash
-pm2 status
-pm2 logs phantomlab --lines 50
-curl -I http://127.0.0.1:3000
-```
-
-Se l'app è ferma, quasi sempre è un problema di variabili d'ambiente o database. Riavvia con:
-
-```bash
-pm2 restart phantomlab --update-env
-```
-
-### La pagina si vede senza stile
-
-Gli asset non sono stati copiati nella build standalone:
-
-```bash
-cd /var/www/phantomlab
-cp -r .next/static .next/standalone/.next/
-cp -r public .next/standalone/ 2>/dev/null || true
-pm2 restart phantomlab
-```
-
-### Errore di connessione al database
-
-```bash
-sudo systemctl status postgresql
-psql "$(grep DATABASE_URL /var/www/phantomlab/.env | cut -d'"' -f2)" -c "SELECT 1;"
-```
-
-Se la password contiene caratteri speciali (`@`, `:`, `/`, `#`), va codificata nell'URL: `@` diventa `%40`, `#` diventa `%23`.
 
 ### Certbot non riesce a validare il dominio
 
@@ -1105,14 +901,13 @@ Il DNS deve essere propagato **prima** di eseguire Certbot.
 ### Il bot non invia notifiche
 
 ```bash
-curl "https://api.telegram.org/botIL_TUO_TOKEN/getWebhookInfo"
+source /var/www/phantomlab/.env
+curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"
 ```
 
-Controlla `last_error_message`. Cause frequenti: `TELEGRAM_WEBHOOK_SECRET` diverso da quello registrato, oppure certificato HTTPS non valido.
+Controlla `last_error_message`. Cause frequenti: `TELEGRAM_WEBHOOK_SECRET` diverso da quello registrato, o certificato HTTPS non valido.
 
 ### Le modifiche al `.env` non hanno effetto
-
-PM2 conserva l'ambiente del primo avvio:
 
 ```bash
 pm2 reload phantomlab --update-env
@@ -1141,12 +936,16 @@ Altrimenti aggiungi il suo ID a `ADMIN_TELEGRAM_IDS` nel `.env` **prima** del su
 
 | Operazione | Comando |
 | --- | --- |
+| Installazione completa | `bash deploy/installa.sh` |
+| Nginx + HTTPS | `sudo bash deploy/configura-nginx.sh` |
+| Aggiornamento | `bash deploy/aggiorna.sh` |
+| Ricompilare gli asset | `bash deploy/build.sh && pm2 restart phantomlab` |
+| Reinstallazione pulita | `sudo bash deploy/pulisci.sh` |
 | Diagnosi configurazione | `npm run verifica-env` |
 | Setup database | `sudo bash deploy/setup-db.sh` |
 | Stato applicazione | `pm2 status` |
 | Log in tempo reale | `pm2 logs phantomlab` |
-| Riavvio | `pm2 reload phantomlab --update-env` |
-| Aggiornamento | `bash deploy/aggiorna.sh` |
+| Riavvio dopo modifica `.env` | `pm2 reload phantomlab --update-env` |
 | Backup manuale | `bash deploy/backup.sh` |
 | Ricarica Nginx | `sudo nginx -t && sudo systemctl reload nginx` |
 | Log Nginx | `sudo tail -f /var/log/nginx/phantomlab.error.log` |

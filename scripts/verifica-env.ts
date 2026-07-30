@@ -125,6 +125,20 @@ if (process.env.SITO_CHIUSO === "true") {
   }
 }
 
+/* --------------------------------- Runtime ------------------------------- */
+
+// Nginx fa proxy verso 127.0.0.1:3080 (deploy/nginx.conf). Se qui la porta
+// è diversa, il sito risponde 502 senza che nulla nei log dell'app lo spieghi.
+const PORTA_ATTESA = "3080";
+const porta = process.env.PORT;
+
+if (porta && porta !== PORTA_ATTESA) {
+  avviso(
+    `PORT="${porta}" ma deploy/nginx.conf fa proxy verso ${PORTA_ATTESA}. ` +
+      "Allinea i due valori, altrimenti il sito risponde 502.",
+  );
+}
+
 /* --------------------- Connessione reale al database -------------------- */
 
 /**

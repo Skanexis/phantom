@@ -36,10 +36,12 @@ export async function middleware(richiesta: NextRequest) {
     );
   }
 
+  // rewrite, non redirect: l'URL nella barra resta quello richiesto, così la
+  // pagina di attesa non rivela l'esistenza di un percorso riservato.
   const destinazione = richiesta.nextUrl.clone();
   destinazione.pathname = "/manutenzione";
   destinazione.search = "";
-  return NextResponse.redirect(destinazione);
+  return NextResponse.rewrite(destinazione);
 }
 
 export const config = {

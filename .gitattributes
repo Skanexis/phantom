@@ -1,0 +1,9 @@
+# Gli script di deploy girano su Linux: devono avere terminazioni LF anche se
+# vengono modificati da Windows. Con CRLF, bash fallisce con errori come
+# "$'\r': command not found", difficili da collegare alla vera causa.
+*.sh text eol=lf
+deploy/nginx.conf text eol=lf
+deploy/nginx-upgrade-map.conf text eol=lf
+
+# Normalizza il resto dei file di testo.
+* text=auto
