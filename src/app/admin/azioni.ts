@@ -386,20 +386,37 @@ export async function aggiornaStatoRichiesta(dati: FormData) {
   });
 
   if (richiesta.utente) {
+    // Annullando, la richiesta sparisce dall'area personale: la notifica
+    // resta l'unica traccia per il cliente e deve bastare da sola.
+    const annullata = stato === "ANNULLATA";
+    const ambito = etichetteAmbito[richiesta.ambito] ?? richiesta.ambito;
+
     await notificaUtente({
       utenteId: richiesta.utente.id,
       telegramId: richiesta.utente.telegramId,
-      titolo: `Richiesta${richiesta.codice ? ` ${richiesta.codice}` : ""} · ${etichetteStato[stato]}`,
-      testo: `Lo stato della tua richiesta è ora: ${etichetteStato[stato]}.${nota ? ` Nota: ${nota}` : ""}`,
+      titolo: annullata
+        ? `Richiesta${richiesta.codice ? ` ${richiesta.codice}` : ""} annullata`
+        : `Richiesta${richiesta.codice ? ` ${richiesta.codice}` : ""} · ${etichetteStato[stato]}`,
+      testo: annullata
+        ? `La richiesta ${richiesta.codice ?? ""} (${ambito}) è stata annullata e non compare più fra le tue richieste.${nota ? ` Motivo: ${nota}` : ""}`
+        : `Lo stato della tua richiesta è ora: ${etichetteStato[stato]}.${nota ? ` Nota: ${nota}` : ""}`,
       url: "/area-personale",
       messaggioTelegram: [
-        `<b>Aggiornamento richiesta</b>${richiesta.codice ? ` · <code>${escapeHtml(richiesta.codice)}</code>` : ""}`,
+        annullata
+          ? `<b>Richiesta annullata</b>${richiesta.codice ? ` · <code>${escapeHtml(richiesta.codice)}</code>` : ""}`
+          : `<b>Aggiornamento richiesta</b>${richiesta.codice ? ` · <code>${escapeHtml(richiesta.codice)}</code>` : ""}`,
         "",
-        `Ambito: ${escapeHtml(etichetteAmbito[richiesta.ambito] ?? richiesta.ambito)}`,
-        `Nuovo stato: <b>${escapeHtml(etichetteStato[stato])}</b>`,
-        ...(nota ? ["", escapeHtml(nota)] : []),
+        `Ambito: ${escapeHtml(ambito)}`,
+        ...(annullata
+          ? []
+          : [`Nuovo stato: <b>${escapeHtml(etichetteStato[stato])}</b>`]),
+        ...(nota
+          ? ["", annullata ? `Motivo: ${escapeHtml(nota)}` : escapeHtml(nota)]
+          : []),
         "",
-        "<i>Rispondi a questo messaggio per scriverci.</i>",
+        annullata
+          ? "<i>La richiesta non compare più nell'area personale. Scrivici se vuoi riaprirla.</i>"
+          : "<i>Rispondi a questo messaggio per scriverci.</i>",
       ].join("\n"),
     });
   }

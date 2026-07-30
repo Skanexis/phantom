@@ -4,6 +4,12 @@ import { utenteCorrente } from "@/lib/sessione";
 import { formattaPrezzo } from "@/lib/contenuti";
 import { etichetteAmbito, etichetteStato } from "@/lib/telegram-bot";
 import {
+  STATI_VISIBILI_CLIENTE,
+  attendeIlCliente,
+  inLavorazione,
+  quandoAggiornata,
+} from "@/lib/richieste";
+import {
   STATI_VISIBILI,
   dataBreve,
   giorniAllaScadenza,
@@ -55,8 +61,15 @@ export default async function AreaPersonale() {
   const [richieste, sottoscrizioni, notifiche, pianiDisponibili] =
     await Promise.all([
       prisma.richiesta.findMany({
-        where: { utenteId: utente.id },
-        orderBy: { creatoIl: "desc" },
+        // Le annullate non compaiono qui: al cliente resta la notifica che
+        // ne spiega il motivo, mentre nel pannello admin la pratica rimane.
+        where: {
+          utenteId: utente.id,
+          stato: { in: STATI_VISIBILI_CLIENTE },
+        },
+        // Per data di aggiornamento: una pratica che si è mossa ieri conta
+        // più di una aperta prima ma ferma da mesi.
+        orderBy: { aggiornatoIl: "desc" },
         include: {
           storico: { orderBy: { creatoIl: "asc" } },
           // Solo il conteggio dei messaggi non letti: il contenuto si
@@ -83,8 +96,11 @@ export default async function AreaPersonale() {
     ]);
 
   const completate = richieste.filter((r) => r.stato === "COMPLETATA").length;
-  const inCorso = richieste.filter((r) =>
-    ["NUOVA", "IN_LAVORAZIONE", "IN_ATTESA_CLIENTE"].includes(r.stato),
+  const inCorso = richieste.filter((r) => inLavorazione(r.stato)).length;
+  // Quante aspettano una risposta del cliente: è l'unica cosa che dipende
+  // da lui, e va detta prima di tutto il resto.
+  const daRispondere = richieste.filter((r) =>
+    attendeIlCliente(r.stato),
   ).length;
 
   // Il piano che conta è quello attivo: guida sia il riepilogo in alto sia
@@ -108,6 +124,13 @@ export default async function AreaPersonale() {
                   ? `Piano ${attiva.abbonamento.nome} attivo`
                   : "Nessun piano attivo"}
               </p>
+              {daRispondere > 0 && (
+                <p className="mono mt-2 text-[12px] text-[var(--accento)]">
+                  {daRispondere === 1
+                    ? "1 richiesta aspetta una tua risposta"
+                    : `${daRispondere} richieste aspettano una tua risposta`}
+                </p>
+              )}
             </div>
             {utente.ruolo === "ADMIN" && (
               <Link
@@ -254,14 +277,22 @@ export default async function AreaPersonale() {
 
         {/* Richieste */}
         <section className="mt-12 sm:mt-14">
-          <Etichetta className="block border-b border-[var(--bordo)] pb-3">
-            Richieste
-          </Etichetta>
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-[var(--bordo)] pb-3">
+            <Etichetta>Richieste</Etichetta>
+            {richieste.length > 0 && (
+              <span className="mono text-[11px] text-[var(--testo-debole)]">
+                {inCorso} in corso · {completate}{" "}
+                {completate === 1 ? "completata" : "completate"}
+              </span>
+            )}
+          </div>
 
           {richieste.length === 0 ? (
             <div className="flex flex-col items-start justify-between gap-4 border-b border-[var(--bordo)] py-8 sm:flex-row sm:items-center">
+              {/* Neutro di proposito: chi ha avuto solo richieste annullate
+                  non ne vede nessuna qui, e "mai inviata" sarebbe falso. */}
               <p className="mono text-[12.5px] text-[var(--testo-tenue)]">
-                Nessuna richiesta inviata.
+                Nessuna richiesta da seguire al momento.
               </p>
               <Link
                 href="/richiesta"
@@ -272,74 +303,106 @@ export default async function AreaPersonale() {
             </div>
           ) : (
             <Scaglionato>
-              {richieste.map((richiesta, indice) => (
-                <Voce key={richiesta.id}>
-                  <article className="border-b border-[var(--bordo)] py-6 sm:py-7">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-baseline gap-4">
-                        {/* Il codice è il riferimento che il cliente cita
+              {richieste.map((richiesta) => {
+                const attiva = inLavorazione(richiesta.stato);
+                const tocca = attendeIlCliente(richiesta.stato);
+
+                return (
+                  <Voce key={richiesta.id}>
+                    {/* Le pratiche chiuse restano leggibili ma arretrano: barra
+                      d'accento e sfondo solo su quelle ancora in corso, così
+                      lo stato si coglie prima di leggere il badge. */}
+                    <article
+                      className={`border-b border-[var(--bordo)] py-6 sm:py-7 ${
+                        attiva
+                          ? "border-l-2 border-l-[var(--accento)] bg-[var(--sfondo-alt)] pl-4 sm:pl-5"
+                          : "pl-4 opacity-70 sm:pl-5"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-baseline gap-4">
+                          {/* Il codice è il riferimento che il cliente cita
                             scrivendoci, e che compare nei messaggi del bot. */}
-                        <span className="mono text-[12px] font-bold tracking-[0.08em] text-[var(--accento)]">
-                          {richiesta.codice ??
-                            String(richieste.length - indice).padStart(3, "0")}
-                        </span>
-                        <h3 className="text-[17px] font-semibold tracking-[-0.01em] sm:text-[18px]">
-                          {etichetteAmbito[richiesta.ambito]}
-                        </h3>
-                      </div>
-                      <BadgeStato stato={richiesta.stato} />
-                    </div>
-
-                    <p className="mono mt-3 whitespace-pre-line text-[13px] leading-[1.75] break-words text-[var(--testo-tenue)] sm:pl-[calc(1rem+3ch)] sm:text-[12.5px]">
-                      {richiesta.messaggio}
-                    </p>
-
-                    {richiesta.storico.length > 0 && (
-                      <ol className="mt-5 sm:pl-[calc(1rem+3ch)]">
-                        {richiesta.storico.map((voce, posizione) => (
-                          // In colonna su mobile: stato, nota e data affiancati
-                          // su schermo stretto si spezzano a metà parola.
-                          <li
-                            key={voce.id}
-                            className="flex flex-col gap-1 border-t border-dashed border-[var(--bordo)] py-2.5 sm:flex-row sm:items-baseline sm:gap-3 sm:py-2"
+                          <span
+                            className={`mono text-[12px] font-bold tracking-[0.08em] ${
+                              attiva
+                                ? "text-[var(--accento)]"
+                                : "text-[var(--testo-debole)]"
+                            }`}
                           >
-                            <span className="flex items-baseline gap-2.5">
-                              <span
-                                aria-hidden="true"
-                                className={`h-1.5 w-1.5 shrink-0 ${
-                                  posizione === richiesta.storico.length - 1
-                                    ? "bg-[var(--accento)]"
-                                    : "bg-[var(--bordo-forte)]"
-                                }`}
-                              />
-                              <span className="mono text-[11.5px] uppercase tracking-[0.08em]">
-                                {etichetteStato[voce.stato]}
-                              </span>
-                            </span>
-                            {voce.nota && (
-                              <span className="mono flex-1 pl-4 text-[11.5px] leading-[1.6] text-[var(--testo-tenue)] sm:pl-0">
-                                {voce.nota}
-                              </span>
-                            )}
-                            <span className="mono pl-4 text-[10.5px] text-[var(--testo-debole)] sm:ml-auto sm:shrink-0 sm:pl-0">
-                              {voce.creatoIl.toLocaleDateString("it-IT", {
-                                day: "2-digit",
-                                month: "2-digit",
-                              })}
-                            </span>
-                          </li>
-                        ))}
-                      </ol>
-                    )}
+                            {richiesta.codice ?? "—"}
+                          </span>
+                          <h3 className="text-[17px] font-semibold tracking-[-0.01em] sm:text-[18px]">
+                            {etichetteAmbito[richiesta.ambito]}
+                          </h3>
+                        </div>
+                        <BadgeStato stato={richiesta.stato} />
+                      </div>
 
-                    <ConversazioneCliente
-                      richiestaId={richiesta.id}
-                      codice={richiesta.codice}
-                      nonLetti={richiesta._count.messaggi}
-                    />
-                  </article>
-                </Voce>
-              ))}
+                      {/* "3 mesi fa" dice quello che una data non dice: nel solo
+                        elenco cronologico una pratica di ieri e una ferma da
+                        mesi si somigliano. */}
+                      <p className="mono mt-2 text-[11px] text-[var(--testo-debole)]">
+                        Aggiornata {quandoAggiornata(richiesta.aggiornatoIl)}
+                      </p>
+
+                      {tocca && (
+                        <p className="mono mt-3 border border-[var(--accento)] px-3.5 py-2.5 text-[11.5px] leading-[1.6] text-[var(--accento)]">
+                          Aspettiamo una tua risposta per procedere.
+                        </p>
+                      )}
+
+                      <p className="mono mt-3 whitespace-pre-line text-[13px] leading-[1.75] break-words text-[var(--testo-tenue)] sm:pl-[calc(1rem+3ch)] sm:text-[12.5px]">
+                        {richiesta.messaggio}
+                      </p>
+
+                      {richiesta.storico.length > 0 && (
+                        <ol className="mt-5 sm:pl-[calc(1rem+3ch)]">
+                          {richiesta.storico.map((voce, posizione) => (
+                            // In colonna su mobile: stato, nota e data affiancati
+                            // su schermo stretto si spezzano a metà parola.
+                            <li
+                              key={voce.id}
+                              className="flex flex-col gap-1 border-t border-dashed border-[var(--bordo)] py-2.5 sm:flex-row sm:items-baseline sm:gap-3 sm:py-2"
+                            >
+                              <span className="flex items-baseline gap-2.5">
+                                <span
+                                  aria-hidden="true"
+                                  className={`h-1.5 w-1.5 shrink-0 ${
+                                    posizione === richiesta.storico.length - 1
+                                      ? "bg-[var(--accento)]"
+                                      : "bg-[var(--bordo-forte)]"
+                                  }`}
+                                />
+                                <span className="mono text-[11.5px] uppercase tracking-[0.08em]">
+                                  {etichetteStato[voce.stato]}
+                                </span>
+                              </span>
+                              {voce.nota && (
+                                <span className="mono flex-1 pl-4 text-[11.5px] leading-[1.6] text-[var(--testo-tenue)] sm:pl-0">
+                                  {voce.nota}
+                                </span>
+                              )}
+                              <span className="mono pl-4 text-[10.5px] text-[var(--testo-debole)] sm:ml-auto sm:shrink-0 sm:pl-0">
+                                {voce.creatoIl.toLocaleDateString("it-IT", {
+                                  day: "2-digit",
+                                  month: "2-digit",
+                                })}
+                              </span>
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+
+                      <ConversazioneCliente
+                        richiestaId={richiesta.id}
+                        codice={richiesta.codice}
+                        nonLetti={richiesta._count.messaggi}
+                      />
+                    </article>
+                  </Voce>
+                );
+              })}
             </Scaglionato>
           )}
         </section>

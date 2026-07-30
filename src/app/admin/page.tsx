@@ -85,6 +85,13 @@ export default async function PannelloAdmin() {
   ]);
 
   const richiesteNuove = richieste.filter((r) => r.stato === "NUOVA").length;
+  // Messaggi del cliente ancora da leggere: è la coda di risposte che il
+  // pannello deve mettere in evidenza quanto le attivazioni.
+  const messaggiDaLeggere = richieste.reduce(
+    (totale, r) =>
+      totale + r.messaggi.filter((m) => !m.daAdmin && !m.letto).length,
+    0,
+  );
   const attivazioniInAttesa = sottoscrizioni.filter(
     (s) => s.stato === "IN_ATTESA",
   ).length;
@@ -106,7 +113,7 @@ export default async function PannelloAdmin() {
   );
 
   // Quel che richiede un intervento, in evidenza sopra tutto il resto.
-  const daFare = richiesteNuove + attivazioniInAttesa;
+  const daFare = richiesteNuove + attivazioniInAttesa + messaggiDaLeggere;
 
   return (
     <div className="flex min-h-full flex-col">
@@ -179,7 +186,8 @@ export default async function PannelloAdmin() {
             {
               id: "richieste",
               etichetta: "Richieste",
-              contatore: richiesteNuove,
+              // Nuove più risposte non lette: entrambe aspettano l'admin.
+              contatore: richiesteNuove + messaggiDaLeggere,
             },
             {
               id: "sottoscrizioni",

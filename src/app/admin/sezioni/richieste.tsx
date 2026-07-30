@@ -132,6 +132,14 @@ export function SezioneRichieste({
                 <BottoneSalva testo="Aggiorna" />
               </form>
 
+              {/* Chi annulla deve sapere che al cliente resta solo la
+                  notifica: la nota diventa l'unica spiegazione che riceve. */}
+              <p className="mono text-[11px] leading-[1.6] text-[var(--testo-debole)]">
+                Annullando, la richiesta sparisce dall&apos;area personale del
+                cliente e resta solo la notifica: scrivi il motivo nella nota.
+                Qui la pratica rimane e lo stato si può ripristinare.
+              </p>
+
               <form
                 action={eliminaRichiesta}
                 className="border-t border-dashed border-[var(--bordo)] pt-4 sm:border-0 sm:pt-0"
