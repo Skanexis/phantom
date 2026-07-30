@@ -6,7 +6,12 @@ import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { useTelegram, vibra } from "@/components/telegram-provider";
 import { Etichetta } from "@/components/ui";
 
-type Fase = "pronto" | "generazione" | "attesa" | "collegato" | "errore";
+/**
+ * Il link è pronto prima del clic, quindi non esiste più una fase di
+ * "generazione"; gli errori si mostrano accanto al pulsante restando in
+ * "pronto", perché è sempre possibile riprovare.
+ */
+type Fase = "pronto" | "attesa" | "collegato";
 
 const INTERVALLO_MS = 2000;
 const SCADENZA_MS = 10 * 60 * 1000;
@@ -43,6 +48,8 @@ export function AccessoTelegram({
   const scadenza = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Popolata da avvia(): permette di forzare una verifica fuori dal ciclo.
   const verificaOra = useRef<(() => void) | null>(null);
+  // Il token accompagna l'URL già pronto: serve al ciclo di verifica.
+  const tokenCorrente = useRef<string | null>(null);
   const router = useRouter();
   const { aggiorna } = useTelegram();
 
@@ -54,6 +61,42 @@ export function AccessoTelegram({
   }, []);
 
   useEffect(() => fermaAttesa, [fermaAttesa]);
+
+  /**
+   * Chiede un token e costruisce il link al bot.
+   *
+   * Va fatto PRIMA del clic: è la condizione perché il pulsante possa
+   * essere un vero <a href>. Se l'URL arrivasse dopo il clic servirebbe
+   * window.open(), che su mobile viene bloccato e finisce per sostituire
+   * la scheda corrente invece di aprirne una nuova.
+   */
+  const preparaLink = useCallback(async () => {
+    try {
+      const risposta = await fetch("/api/auth/collega", { method: "POST" });
+      const dati = await risposta.json().catch(() => null);
+
+      if (!risposta.ok || !dati?.url) {
+        setErrore(dati?.errore ?? "Impossibile preparare il collegamento.");
+        return false;
+      }
+
+      tokenCorrente.current = dati.token;
+      setUrlBot(dati.url);
+      setErrore(null);
+      return true;
+    } catch {
+      setErrore("Connessione non riuscita. Ricarica la pagina.");
+      return false;
+    }
+  }, []);
+
+  // Il timeout a zero sposta la chiamata fuori dal corpo dell'effetto: le
+  // setState di preparaLink avvengono comunque dopo un await, ma così è
+  // evidente anche all'analisi statica che non sono sincrone.
+  useEffect(() => {
+    const avvio = setTimeout(() => void preparaLink(), 0);
+    return () => clearTimeout(avvio);
+  }, [preparaLink]);
 
   // I browser rallentano setInterval nelle schede in secondo piano fino a
   // una volta al minuto: tornando dal bot l'utente aspetterebbe a vuoto,
@@ -73,54 +116,34 @@ export function AccessoTelegram({
     };
   }, [fase]);
 
-  const avvia = useCallback(async () => {
-    vibra();
-    setFase("generazione");
-    setErrore(null);
+  /**
+   * Avvia l'attesa DOPO che il browser ha già seguito il link.
+   *
+   * Non apre nulla: il pulsante è un vero <a target="_blank">, e la scheda
+   * la apre il browser come per qualsiasi altro link. È l'unico modo che
+   * funziona su mobile, dove window.open() viene bloccato quasi sempre e
+   * il ripiego fuori dal gesto di clic sostituisce la scheda corrente
+   * invece di aprirne una nuova.
+   */
+  const avvia = useCallback(
+    (evento: React.MouseEvent<HTMLAnchorElement>) => {
+      vibra();
 
-    // La scheda va aperta ORA, nel gesto di clic: dopo il primo await il
-    // browser non collega più window.open al clic e blocca il popup. Resta
-    // vuota per una frazione di secondo, poi le assegno l'URL definitivo.
-    //
-    // Niente "noopener" fra le opzioni: con quel flag il browser restituisce
-    // null e perderei il riferimento alla scheda, che resterebbe bianca per
-    // sempre. Taglio il legame dopo, azzerando opener sulla nuova finestra.
-    const webApp = window.Telegram?.WebApp;
-    const dentroTelegram = Boolean(webApp?.openTelegramLink);
-    const scheda = dentroTelegram ? null : window.open("", "_blank");
-    if (scheda) {
-      try {
-        scheda.opener = null;
-      } catch {
-        // Alcuni browser rendono opener di sola lettura: non è bloccante.
-      }
-    }
-
-    try {
-      const risposta = await fetch("/api/auth/collega", { method: "POST" });
-      const dati = await risposta.json().catch(() => null);
-
-      if (!risposta.ok || !dati?.url) {
-        scheda?.close();
-        setFase("errore");
-        setErrore(dati?.errore ?? "Impossibile avviare il collegamento.");
+      const token = tokenCorrente.current;
+      if (!token || !urlBot) {
+        evento.preventDefault();
         return;
       }
 
-      setUrlBot(dati.url);
-      setFase("attesa");
-
-      // Dentro Telegram uso l'API nativa, altrimenti la scheda già aperta.
-      if (dentroTelegram) {
-        webApp!.openTelegramLink!(dati.url);
-      } else if (scheda && !scheda.closed) {
-        scheda.location.href = dati.url;
-      } else {
-        // Popup bloccato: un secondo tentativo fuori dal gesto riesce su
-        // parecchi browser. Se fallisce anche questo resta il pulsante
-        // "Riapri il bot": è un <a> in un clic diretto, mai bloccato.
-        window.open(dati.url, "_blank", "noopener,noreferrer");
+      // Dentro Telegram la Mini App usa l'API nativa: seguire il link
+      // aprirebbe il browser interno invece della chat col bot.
+      const webApp = window.Telegram?.WebApp;
+      if (webApp?.openTelegramLink) {
+        evento.preventDefault();
+        webApp.openTelegramLink(urlBot);
       }
+
+      setFase("attesa");
 
       let inCorso = false;
 
@@ -134,7 +157,7 @@ export function AccessoTelegram({
           const risposta = await fetch("/api/auth/collega", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: dati.token }),
+            body: JSON.stringify({ token }),
           });
           const esito = await risposta.json().catch(() => null);
 
@@ -158,15 +181,17 @@ export function AccessoTelegram({
 
       scadenza.current = setTimeout(() => {
         fermaAttesa();
-        setFase("errore");
-        setErrore("Tempo scaduto. Genera un nuovo link di accesso.");
+        setFase("pronto");
+        setErrore("Tempo scaduto. Riprova ad aprire il bot.");
+        // Il token scaduto non vale più: ne preparo subito uno nuovo, così
+        // il pulsante è di nuovo utilizzabile senza ricaricare la pagina.
+        tokenCorrente.current = null;
+        setUrlBot(null);
+        void preparaLink();
       }, SCADENZA_MS);
-    } catch {
-      scheda?.close();
-      setFase("errore");
-      setErrore("Connessione non riuscita. Riprova.");
-    }
-  }, [aggiorna, fermaAttesa, router]);
+    },
+    [aggiorna, fermaAttesa, preparaLink, router, urlBot],
+  );
 
   return (
     // "user": chi ha chiesto meno movimento nel sistema operativo riceve solo
@@ -282,7 +307,12 @@ export function AccessoTelegram({
                     vibra();
                     fermaAttesa();
                     setFase("pronto");
+                    // Un token nuovo: quello precedente può essere già stato
+                    // consumato, e senza ricambiarlo il pulsante resterebbe
+                    // spento con l'URL azzerato.
                     setUrlBot(null);
+                    tokenCorrente.current = null;
+                    void preparaLink();
                   }}
                   className="mono flex min-h-[44px] items-center justify-center px-2 text-[11px] uppercase tracking-[0.12em] text-[var(--testo-debole)] transition-colors hover:text-[var(--testo)] sm:justify-start"
                 >
@@ -299,15 +329,23 @@ export function AccessoTelegram({
               exit="esce"
               className="relative mt-8"
             >
-              <motion.button
-                type="button"
+              {/* Un vero <a target="_blank">, non un window.open(): il
+                  browser lo tratta come qualsiasi altro link e apre una
+                  scheda nuova anche su mobile, dove i popup aperti da
+                  JavaScript vengono bloccati. */}
+              <motion.a
+                href={urlBot ?? undefined}
+                target="_blank"
+                rel="noopener noreferrer"
                 onClick={avvia}
-                disabled={fase === "generazione"}
+                aria-disabled={!urlBot}
                 whileTap={{ scale: 0.97 }}
                 transition={{ type: "spring", stiffness: 600, damping: 30 }}
-                className="mono spinta flex min-h-[52px] w-full items-center justify-center gap-2 border border-[var(--accento)] bg-[var(--accento)] px-6 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--accento-testo)] disabled:opacity-60 sm:w-auto"
+                className={`mono spinta flex min-h-[52px] w-full items-center justify-center gap-2 border border-[var(--accento)] bg-[var(--accento)] px-6 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--accento-testo)] sm:w-auto ${
+                  urlBot ? "" : "pointer-events-none opacity-60"
+                }`}
               >
-                {fase === "generazione" ? (
+                {!urlBot ? (
                   <>
                     <motion.span
                       animate={{ rotate: 360 }}
@@ -318,7 +356,7 @@ export function AccessoTelegram({
                       }}
                       className="h-3 w-3 border border-current border-t-transparent"
                     />
-                    Generazione…
+                    Preparazione…
                   </>
                 ) : (
                   <>
@@ -336,7 +374,7 @@ export function AccessoTelegram({
                     </motion.span>
                   </>
                 )}
-              </motion.button>
+              </motion.a>
 
               <p className="mono mt-3 text-[11px] leading-[1.6] text-[var(--testo-debole)]">
                 Si apre in una nuova scheda ↗
