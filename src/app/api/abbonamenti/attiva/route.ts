@@ -5,6 +5,8 @@ import { leggiSessione } from "@/lib/sessione";
 import { escapeHtml, notificaAdmin, notificaUtente } from "@/lib/notifiche";
 import { formattaPrezzo } from "@/lib/contenuti";
 import { STATI_APERTI } from "@/lib/abbonamenti";
+import { PREFISSO_ABBONAMENTO, codiceUnico } from "@/lib/codici";
+import { riferimentoUtente } from "@/lib/utenti";
 
 const schema = z.object({
   slug: z.string().trim().min(1).max(80),
@@ -77,8 +79,15 @@ export async function POST(richiesta: Request) {
     );
   }
 
+  const codice = await codiceUnico(PREFISSO_ABBONAMENTO, async (valore) =>
+    Boolean(
+      await prisma.abbonamentoUtente.findUnique({ where: { codice: valore } }),
+    ),
+  );
+
   const sottoscrizione = await prisma.abbonamentoUtente.create({
     data: {
+      codice,
       utenteId: sessione.utenteId,
       abbonamentoId: piano.id,
       stato: "IN_ATTESA",
@@ -86,19 +95,36 @@ export async function POST(richiesta: Request) {
   });
 
   const prezzo = formattaPrezzo(piano.prezzoCentesimi, piano.valuta);
+  const utente = await prisma.utente.findUnique({
+    where: { id: sessione.utenteId },
+  });
 
   await notificaUtente({
     utenteId: sessione.utenteId,
     telegramId: sessione.telegramId,
-    titolo: "Richiesta di attivazione ricevuta",
-    testo: `La tua richiesta per il piano ${piano.nome} è in attesa di conferma. Ti avviseremo appena sarà attivo.`,
+    titolo: `Richiesta abbonamento ${codice}`,
+    testo: `La tua richiesta per il piano ${piano.nome} (${codice}) è in attesa di conferma. Ti avviseremo appena sarà attivo.`,
     url: "/area-personale",
-    messaggioTelegram: `<b>Richiesta di attivazione ricevuta</b>\n\nPiano: <b>${escapeHtml(piano.nome)}</b>\nPrezzo: ${escapeHtml(prezzo)} / ${escapeHtml(piano.periodo)}\n\nTi avviseremo appena l'abbonamento sarà attivo.`,
+    messaggioTelegram: [
+      `<b>Richiesta di attivazione ricevuta</b> · <code>${escapeHtml(codice)}</code>`,
+      "",
+      `Piano: <b>${escapeHtml(piano.nome)}</b>`,
+      `Prezzo: ${escapeHtml(prezzo)} / ${escapeHtml(piano.periodo)}`,
+      "",
+      "Ti avviseremo appena l'abbonamento sarà attivo.",
+    ].join("\n"),
   });
 
   await notificaAdmin(
-    `<b>Nuova richiesta di abbonamento</b>\n\nPiano: ${escapeHtml(piano.nome)}\nPrezzo: ${escapeHtml(prezzo)}\nTelegram ID: ${escapeHtml(sessione.telegramId)}`,
+    [
+      `<b>Nuova richiesta di abbonamento</b> · <code>${escapeHtml(codice)}</code>`,
+      "",
+      `Piano: <b>${escapeHtml(piano.nome)}</b>`,
+      `Prezzo: ${escapeHtml(prezzo)} / ${escapeHtml(piano.periodo)}`,
+      `Cliente: ${escapeHtml(riferimentoUtente(utente))}`,
+    ].join("\n"),
+    { sottoscrizioneId: sottoscrizione.id, codice },
   );
 
-  return NextResponse.json({ id: sottoscrizione.id }, { status: 201 });
+  return NextResponse.json({ id: sottoscrizione.id, codice }, { status: 201 });
 }

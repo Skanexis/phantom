@@ -669,6 +669,31 @@ bash deploy/build.sh          # NON solo `npm run build`
 pm2 reload phantomlab --update-env
 ```
 
+### Aggiornamento con i codici brevi e la messaggistica
+
+La migrazione `20260731120000_messaggi_e_codici` aggiunge la colonna `codice` a richieste e abbonamenti e la tabella `Messaggio`. Sulle righe già esistenti `codice` nasce **vuoto**: le vecchie richieste comparirebbero senza riferimento. Dopo `prisma migrate deploy` assegna i codici mancanti una volta sola:
+
+```bash
+cd /var/www/phantomlab
+npm run assegna-codici
+```
+
+Lo script tocca solo le righe con codice nullo, quindi rieseguirlo non fa danni.
+
+### Notifiche in tempo reale (SSE)
+
+Il badge delle notifiche e le conversazioni si aggiornano da soli tramite `/api/flusso`, una connessione a lunga durata (Server-Sent Events). `deploy/nginx.conf` contiene già il blocco `location = /api/flusso` necessario: senza `proxy_buffering off` gli eventi restano fermi nel buffer di Nginx e l'aggiornamento "in tempo reale" semplicemente non arriva — **senza alcun errore visibile**.
+
+Se hai una configurazione Nginx personalizzata, ricopia quel blocco. Per verificare che il flusso passi davvero:
+
+```bash
+curl -N -H "Cookie: phantomlab_sessione=<il-tuo-cookie>" https://phantom-lab.eu/api/flusso
+```
+
+Devi vedere `retry: 5000` e un evento `stato` **subito**, poi `: battito` ogni 25 secondi. Se non compare nulla per parecchi secondi, il buffering è ancora attivo.
+
+> L'applicazione gira su una sola istanza PM2 e il bus degli eventi vive in memoria nel processo. Passando a più istanze (`instances: "max"` in `ecosystem.config.js`) gli eventi raggiungerebbero solo i client connessi allo stesso processo: servirebbe un canale condiviso (Redis pub/sub) al posto dell'emitter in `src/lib/eventi.ts`.
+
 ---
 
 ## 14. Reinstallazione pulita

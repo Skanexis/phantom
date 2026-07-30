@@ -9,6 +9,7 @@
     "lint": "eslint",
     "postinstall": "prisma generate",
     "seed": "tsx prisma/seed.ts",
+    "assegna-codici": "tsx prisma/assegna-codici.ts",
     "promuovi-admin": "tsx scripts/promuovi-admin.ts",
     "verifica-env": "tsx scripts/verifica-env.ts"
   },

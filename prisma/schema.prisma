@@ -94,6 +94,8 @@ model FunzionalitaAbbonamento {
 
 model AbbonamentoUtente {
   id            String                 @id @default(cuid())
+  /// Codice breve tipo S-7B1C, come per le richieste.
+  codice        String?                @unique
   utenteId      String
   abbonamentoId String
   stato         StatoAbbonamentoUtente @default(ATTIVO)
@@ -114,6 +116,8 @@ model Richiesta {
   id           String         @id @default(cuid())
   /// Numero progressivo leggibile, usato nelle comunicazioni col cliente.
   numero       Int            @unique @default(autoincrement())
+  /// Codice breve tipo R-4F2A: si detta al telefono e si cerca a colpo d'occhio.
+  codice       String?        @unique
   utenteId     String?
   ambito       AmbitoSviluppo
   stato        StatoRichiesta @default(NUOVA)
@@ -127,8 +131,28 @@ model Richiesta {
 
   utente Utente?          @relation(fields: [utenteId], references: [id], onDelete: SetNull)
   storico StoricoStato[]
+  messaggi Messaggio[]
 
   @@index([stato, creatoIl])
+}
+
+/// Messaggio della conversazione fra cliente e amministrazione su una richiesta.
+model Messaggio {
+  id          String   @id @default(cuid())
+  richiestaId String
+  /// Autore del messaggio: l'utente stesso o un amministratore.
+  daAdmin     Boolean  @default(false)
+  testo       String
+  /// Vero quando il destinatario l'ha visto: alimenta il badge non lette.
+  letto       Boolean  @default(false)
+  /// Traccia i messaggi arrivati dal bot invece che dal sito.
+  daTelegram  Boolean  @default(false)
+  creatoIl    DateTime @default(now())
+
+  richiesta Richiesta @relation(fields: [richiestaId], references: [id], onDelete: Cascade)
+
+  @@index([richiestaId, creatoIl])
+  @@index([letto, daAdmin])
 }
 
 /// Traccia ogni cambio di stato di una richiesta, per la cronologia utente.

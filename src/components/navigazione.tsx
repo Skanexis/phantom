@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useScroll, useSpring } from "framer-motion";
 import { useTelegram, vibra } from "@/components/telegram-provider";
+import { useFlusso } from "@/components/flusso-provider";
 import { InterruttoreTema } from "@/components/interruttore-tema";
 
 const voci = [
@@ -15,8 +16,10 @@ const voci = [
 
 export function Navigazione() {
   const [menuAperto, setMenuAperto] = useState(false);
-  const [nonLette, setNonLette] = useState(0);
   const { utente } = useTelegram();
+  // Il conteggio arriva dal flusso SSE: si aggiorna da solo, senza
+  // ricaricare la pagina né interrogare il server a intervalli.
+  const { nonLette } = useFlusso();
 
   const { scrollYProgress } = useScroll();
   const progresso = useSpring(scrollYProgress, {
@@ -24,29 +27,6 @@ export function Navigazione() {
     damping: 26,
     restDelta: 0.001,
   });
-
-  useEffect(() => {
-    let annullato = false;
-
-    async function caricaConteggio() {
-      if (!utente) {
-        if (!annullato) setNonLette(0);
-        return;
-      }
-      try {
-        const risposta = await fetch("/api/notifiche");
-        const dati = await risposta.json();
-        if (!annullato) setNonLette(dati?.nonLette ?? 0);
-      } catch {
-        if (!annullato) setNonLette(0);
-      }
-    }
-
-    caricaConteggio();
-    return () => {
-      annullato = true;
-    };
-  }, [utente]);
 
   useEffect(() => {
     document.body.style.overflow = menuAperto ? "hidden" : "";
@@ -102,9 +82,14 @@ export function Navigazione() {
             <AnimatePresence>
               {nonLette > 0 && (
                 <motion.span
+                  // key sul conteggio: cambiando numero l'elemento viene
+                  // rimontato e l'animazione riparte, segnalando l'arrivo.
+                  key={nonLette}
                   initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
+                  animate={{ scale: [0, 1.35, 1] }}
                   exit={{ scale: 0 }}
+                  transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+                  aria-label={`${nonLette} notifiche non lette`}
                   className="mono absolute right-1.5 top-2 flex h-4 min-w-4 items-center justify-center bg-[var(--allarme)] px-1 text-[9px] font-bold text-white"
                 >
                   {nonLette > 9 ? "9+" : nonLette}
@@ -132,12 +117,16 @@ export function Navigazione() {
           >
             <div className="flex w-4 flex-col gap-1">
               <motion.span
-                animate={menuAperto ? { rotate: 45, y: 3 } : { rotate: 0, y: 0 }}
+                animate={
+                  menuAperto ? { rotate: 45, y: 3 } : { rotate: 0, y: 0 }
+                }
                 transition={{ duration: 0.18 }}
                 className="h-px w-full bg-[var(--testo)]"
               />
               <motion.span
-                animate={menuAperto ? { rotate: -45, y: -3 } : { rotate: 0, y: 0 }}
+                animate={
+                  menuAperto ? { rotate: -45, y: -3 } : { rotate: 0, y: 0 }
+                }
                 transition={{ duration: 0.18 }}
                 className="h-px w-full bg-[var(--testo)]"
               />

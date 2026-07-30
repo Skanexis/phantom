@@ -69,7 +69,7 @@ export default async function PannelloAdmin() {
     }),
     prisma.richiesta.findMany({
       orderBy: { creatoIl: "desc" },
-      include: { utente: true },
+      include: { utente: true, messaggi: { orderBy: { creatoIl: "asc" } } },
       take: 50,
     }),
     prisma.abbonamentoUtente.findMany({

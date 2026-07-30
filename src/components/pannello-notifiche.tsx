@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { vibra } from "@/components/telegram-provider";
+import { useFlusso } from "@/components/flusso-provider";
 import { Etichetta } from "@/components/ui";
 
 type Notifica = {
@@ -16,26 +17,47 @@ type Notifica = {
 export function PannelloNotifiche({ iniziali }: { iniziali: Notifica[] }) {
   const [notifiche, setNotifiche] = useState(iniziali);
   const nonLette = notifiche.filter((n) => !n.letta).length;
+  const { ascolta, impostaNonLette } = useFlusso();
+
+  // Una notifica che arriva mentre la pagina è aperta deve comparire in
+  // cima subito: prima serviva un ricaricamento per vederla.
+  useEffect(
+    () =>
+      ascolta((evento) => {
+        if (evento.tipo !== "notifica" && evento.tipo !== "messaggio") return;
+        fetch("/api/notifiche")
+          .then((risposta) => risposta.json())
+          .then((dati) => {
+            if (Array.isArray(dati?.notifiche)) setNotifiche(dati.notifiche);
+          })
+          .catch(() => undefined);
+      }),
+    [ascolta],
+  );
 
   async function segnaTutte() {
     vibra();
-    // Aggiorno subito l'interfaccia: la conferma dal server arriva dopo.
+    // Aggiorno subito interfaccia e badge: la conferma dal server arriva dopo.
     setNotifiche((precedenti) =>
       precedenti.map((n) => ({ ...n, letta: true })),
     );
+    impostaNonLette(0);
 
     try {
-      await fetch("/api/notifiche", {
+      const risposta = await fetch("/api/notifiche", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tutte: true }),
       });
+      const dati = await risposta.json().catch(() => null);
+      if (typeof dati?.nonLette === "number") impostaNonLette(dati.nonLette);
     } catch {
       // In caso di errore ricarico dal server per non mostrare uno stato falso.
       try {
         const risposta = await fetch("/api/notifiche");
         const dati = await risposta.json();
         if (dati?.notifiche) setNotifiche(dati.notifiche);
+        if (typeof dati?.nonLette === "number") impostaNonLette(dati.nonLette);
       } catch {
         // Rete non disponibile: si sistema al ricaricamento.
       }

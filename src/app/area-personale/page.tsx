@@ -17,6 +17,7 @@ import { PannelloNotifiche } from "@/components/pannello-notifiche";
 import { Rivela, Scaglionato, Voce } from "@/components/animazioni";
 import { AccessoTelegram } from "@/components/accesso-telegram";
 import { GestioneAbbonamento } from "@/components/gestione-abbonamento";
+import { ConversazioneCliente } from "@/components/conversazione-cliente";
 import { Etichetta } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +57,14 @@ export default async function AreaPersonale() {
       prisma.richiesta.findMany({
         where: { utenteId: utente.id },
         orderBy: { creatoIl: "desc" },
-        include: { storico: { orderBy: { creatoIl: "asc" } } },
+        include: {
+          storico: { orderBy: { creatoIl: "asc" } },
+          // Solo il conteggio dei messaggi non letti: il contenuto si
+          // carica all'apertura della conversazione.
+          _count: {
+            select: { messaggi: { where: { daAdmin: true, letto: false } } },
+          },
+        },
       }),
       prisma.abbonamentoUtente.findMany({
         where: { utenteId: utente.id, stato: { in: STATI_VISIBILI } },
@@ -160,7 +168,12 @@ export default async function AreaPersonale() {
                     <div className="border-b border-[var(--bordo)] py-6">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <h3 className="text-[19px] font-semibold tracking-[-0.01em] break-words sm:text-[20px]">
+                          {sottoscrizione.codice && (
+                            <span className="mono block text-[11px] font-bold tracking-[0.08em] text-[var(--accento)]">
+                              {sottoscrizione.codice}
+                            </span>
+                          )}
+                          <h3 className="mt-1 text-[19px] font-semibold tracking-[-0.01em] break-words sm:text-[20px]">
                             {sottoscrizione.abbonamento.nome}
                           </h3>
                           <p className="mono mt-1.5 text-[12px] text-[var(--testo-tenue)]">
@@ -264,8 +277,11 @@ export default async function AreaPersonale() {
                   <article className="border-b border-[var(--bordo)] py-6 sm:py-7">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-baseline gap-4">
-                        <span className="mono text-[11px] tracking-[0.12em] text-[var(--testo-debole)]">
-                          {String(richieste.length - indice).padStart(3, "0")}
+                        {/* Il codice è il riferimento che il cliente cita
+                            scrivendoci, e che compare nei messaggi del bot. */}
+                        <span className="mono text-[12px] font-bold tracking-[0.08em] text-[var(--accento)]">
+                          {richiesta.codice ??
+                            String(richieste.length - indice).padStart(3, "0")}
                         </span>
                         <h3 className="text-[17px] font-semibold tracking-[-0.01em] sm:text-[18px]">
                           {etichetteAmbito[richiesta.ambito]}
@@ -315,6 +331,12 @@ export default async function AreaPersonale() {
                         ))}
                       </ol>
                     )}
+
+                    <ConversazioneCliente
+                      richiestaId={richiesta.id}
+                      codice={richiesta.codice}
+                      nonLetti={richiesta._count.messaggi}
+                    />
                   </article>
                 </Voce>
               ))}

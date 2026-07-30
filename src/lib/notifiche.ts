@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { inviaMessaggio } from "@/lib/telegram-bot";
+import { CANALE_ADMIN, pubblica } from "@/lib/eventi";
 
 /**
  * Crea la notifica in-app e prova a inoltrarla su Telegram.
@@ -24,6 +25,18 @@ export async function notificaUtente({
     data: { utenteId, titolo, testo, url: url ?? null },
   });
 
+  // Il conteggio viaggia con l'evento: il client aggiorna il badge senza
+  // dover interrogare di nuovo il server.
+  const nonLette = await prisma.notifica.count({
+    where: { utenteId, letta: false },
+  });
+
+  pubblica({
+    tipo: "notifica",
+    destinatario: utenteId,
+    dati: { nonLette, titolo, testo },
+  });
+
   if (telegramId) {
     await inviaMessaggio(
       telegramId,
@@ -32,7 +45,10 @@ export async function notificaUtente({
   }
 }
 
-export async function notificaAdmin(testo: string) {
+export async function notificaAdmin(testo: string, dati?: Record<string, unknown>) {
+  // Anche il pannello admin aperto in una scheda riceve l'aggiornamento.
+  pubblica({ tipo: "notifica", destinatario: CANALE_ADMIN, dati: dati ?? {} });
+
   const chatAdmin = process.env.TELEGRAM_ADMIN_CHAT_ID;
   if (chatAdmin) await inviaMessaggio(chatAdmin, testo);
 }

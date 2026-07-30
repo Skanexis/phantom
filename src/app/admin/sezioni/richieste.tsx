@@ -6,12 +6,18 @@ import {
   BottoneSalva,
   classiSelettore,
 } from "@/components/campi-admin";
+import { ConversazioneAdmin } from "@/components/conversazione-admin";
 import { etichetteAmbito, etichetteStato } from "@/lib/telegram-bot";
-import { aggiornaStatoRichiesta, eliminaRichiesta } from "../azioni";
+import { riferimentoUtente } from "@/lib/utenti";
+import {
+  aggiornaStatoRichiesta,
+  eliminaRichiesta,
+  inviaMessaggioAlCliente,
+} from "../azioni";
 import type { Prisma } from "@/generated/prisma/client";
 
 type RichiestaConUtente = Prisma.RichiestaGetPayload<{
-  include: { utente: true };
+  include: { utente: true; messaggi: true };
 }>;
 
 export function SezioneRichieste({
@@ -39,6 +45,7 @@ export function SezioneRichieste({
         id: richiesta.id,
         stato: richiesta.stato,
         ricerca: [
+          richiesta.codice ?? "",
           richiesta.nomeContatto,
           richiesta.contatto,
           richiesta.messaggio,
@@ -51,8 +58,11 @@ export function SezioneRichieste({
           <article className={bloccoAdmin}>
             <div className="flex flex-col gap-3 border-b border-[var(--bordo)] pb-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <div className="flex items-baseline gap-3">
-                <span className="mono shrink-0 text-[11px] tracking-[0.12em] text-[var(--testo-debole)]">
-                  {String(richieste.length - indice).padStart(3, "0")}
+                {/* Il codice sostituisce il progressivo: è l'identificatore
+                    che compare anche nelle comunicazioni al cliente. */}
+                <span className="mono shrink-0 text-[12px] font-bold tracking-[0.08em] text-[var(--accento)]">
+                  {richiesta.codice ??
+                    String(richieste.length - indice).padStart(3, "0")}
                 </span>
                 <h3 className="text-[17px] font-semibold tracking-[-0.01em] break-words">
                   {etichetteAmbito[richiesta.ambito]} · {richiesta.nomeContatto}
@@ -65,18 +75,8 @@ export function SezioneRichieste({
 
             <dl className="mt-4 grid gap-1">
               {[
-                ["Contatto", richiesta.contatto],
+                ["Cliente", riferimentoUtente(richiesta.utente)],
                 ...(richiesta.budget ? [["Budget", richiesta.budget]] : []),
-                ...(richiesta.utente
-                  ? [
-                      [
-                        "Telegram",
-                        richiesta.utente.username
-                          ? `@${richiesta.utente.username}`
-                          : richiesta.utente.telegramId,
-                      ],
-                    ]
-                  : []),
                 ["Data", richiesta.creatoIl.toLocaleString("it-IT")],
               ].map(([chiave, valore]) => (
                 // Su mobile l'etichetta va sopra il valore: affiancata
@@ -140,6 +140,17 @@ export function SezioneRichieste({
                 <BottoneElimina />
               </form>
             </div>
+
+            <ConversazioneAdmin
+              richiestaId={richiesta.id}
+              invia={inviaMessaggioAlCliente}
+              messaggiIniziali={richiesta.messaggi.map((messaggio) => ({
+                id: messaggio.id,
+                testo: messaggio.testo,
+                daAdmin: messaggio.daAdmin,
+                creatoIl: messaggio.creatoIl.toISOString(),
+              }))}
+            />
           </article>
         ),
       }))}

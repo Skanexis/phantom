@@ -45,6 +45,7 @@ export function FormRichiesta({ ambitoIniziale }: { ambitoIniziale?: string }) {
   const [invio, setInvio] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
   const [inviata, setInviata] = useState(false);
+  const [codice, setCodice] = useState<string | null>(null);
 
   async function gestisciInvio(evento: React.FormEvent<HTMLFormElement>) {
     evento.preventDefault();
@@ -60,7 +61,6 @@ export function FormRichiesta({ ambitoIniziale }: { ambitoIniziale?: string }) {
         body: JSON.stringify({
           ambito,
           nomeContatto: dati.get("nomeContatto"),
-          contatto: dati.get("contatto"),
           budget: dati.get("budget"),
           messaggio: dati.get("messaggio"),
         }),
@@ -73,6 +73,8 @@ export function FormRichiesta({ ambitoIniziale }: { ambitoIniziale?: string }) {
         return;
       }
 
+      const esito = await risposta.json().catch(() => null);
+      setCodice(esito?.codice ?? null);
       vibra("successo");
       setInviata(true);
     } catch {
@@ -97,9 +99,23 @@ export function FormRichiesta({ ambitoIniziale }: { ambitoIniziale?: string }) {
           <br />
           inviata
         </h2>
+        {codice && (
+          <div className="mt-6 inline-flex items-center gap-3 border border-[var(--accento)] px-4 py-3">
+            <span className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--testo-tenue)]">
+              Codice
+            </span>
+            <span className="mono text-[18px] font-bold tracking-[0.08em] text-[var(--accento)]">
+              {codice}
+            </span>
+          </div>
+        )}
+
         <p className="mono mt-5 max-w-md text-[12.5px] leading-[1.75] text-[var(--testo-tenue)]">
-          Abbiamo ricevuto la tua richiesta ed è stata presa in carico. Se hai
-          aperto la piattaforma da Telegram, riceverai una conferma dal bot.
+          Abbiamo ricevuto la tua richiesta ed è stata presa in carico.
+          {codice
+            ? ` Citala con il codice ${codice}: lo trovi anche nell'area personale.`
+            : ""}{" "}
+          Riceverai gli aggiornamenti dal bot Telegram.
         </p>
 
         <div className="mt-9 flex flex-col gap-3 sm:flex-row">
@@ -174,17 +190,18 @@ export function FormRichiesta({ ambitoIniziale }: { ambitoIniziale?: string }) {
           minLength={2}
         />
         <Campo
-          etichetta="Contatto"
-          nome="contatto"
-          placeholder="@username Telegram, email o telefono"
-          richiesto
-          minLength={3}
-        />
-        <Campo
           etichetta="Budget (facoltativo)"
           nome="budget"
           placeholder="Es. 1.000 – 3.000 €"
         />
+
+        {/* Il recapito arriva dal profilo Telegram collegato: chiederlo di
+            nuovo significherebbe farsi dettare un dato già disponibile, con
+            il rischio di uno username trascritto male. */}
+        <p className="mono border border-dashed border-[var(--bordo)] px-4 py-3 text-[11.5px] leading-[1.6] text-[var(--testo-tenue)]">
+          Ti ricontattiamo sul tuo account Telegram collegato. Non serve
+          scrivere altri recapiti.
+        </p>
 
         <label className="flex flex-col gap-2.5">
           <Etichetta>Descrizione progetto</Etichetta>

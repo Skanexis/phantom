@@ -3,9 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { richiediAdmin } from "@/lib/sessione";
-import { etichetteStato, etichetteStatoAbbonamento } from "@/lib/telegram-bot";
+import {
+  etichetteAmbito,
+  etichetteStato,
+  etichetteStatoAbbonamento,
+} from "@/lib/telegram-bot";
 import { escapeHtml, notificaUtente } from "@/lib/notifiche";
 import { dataBreve, scadenzaDaPeriodo } from "@/lib/abbonamenti";
+import { LUNGHEZZA_MASSIMA, inviaMessaggioAdmin } from "@/lib/messaggi";
+import { PREFISSO_ABBONAMENTO, codiceUnico } from "@/lib/codici";
 import type {
   StatoAbbonamentoUtente,
   StatoRichiesta,
@@ -229,14 +235,20 @@ export async function aggiornaStatoSottoscrizione(dati: FormData) {
   await notificaUtente({
     utenteId: sottoscrizione.utenteId,
     telegramId: sottoscrizione.utente.telegramId,
-    titolo: "Aggiornamento abbonamento",
+    titolo: `Abbonamento${sottoscrizione.codice ? ` ${sottoscrizione.codice}` : ""} · ${etichetteStatoAbbonamento[stato]}`,
     testo: `Il piano ${sottoscrizione.abbonamento.nome} è ora: ${etichetteStatoAbbonamento[stato]}.${
       stato === "ATTIVO" && scadenza ? ` Rinnovo il ${scadenza}.` : ""
     }`,
     url: "/area-personale",
-    messaggioTelegram: `<b>Aggiornamento abbonamento</b>\n\nPiano: <b>${escapeHtml(sottoscrizione.abbonamento.nome)}</b>\nStato: <b>${escapeHtml(etichetteStatoAbbonamento[stato])}</b>${
-      stato === "ATTIVO" && scadenza ? `\nRinnovo: ${escapeHtml(scadenza)}` : ""
-    }`,
+    messaggioTelegram: [
+      `<b>Aggiornamento abbonamento</b>${sottoscrizione.codice ? ` · <code>${escapeHtml(sottoscrizione.codice)}</code>` : ""}`,
+      "",
+      `Piano: <b>${escapeHtml(sottoscrizione.abbonamento.nome)}</b>`,
+      `Stato: <b>${escapeHtml(etichetteStatoAbbonamento[stato])}</b>`,
+      ...(stato === "ATTIVO" && scadenza
+        ? [`Rinnovo: <b>${escapeHtml(scadenza)}</b>`]
+        : []),
+    ].join("\n"),
   });
 
   revalidatePath("/admin");
@@ -317,8 +329,15 @@ export async function assegnaAbbonamento(dati: FormData) {
     ? new Date(`${scadenzaManuale}T23:59:59`)
     : scadenzaDaPeriodo(piano.periodo, inizio);
 
+  const codice = await codiceUnico(PREFISSO_ABBONAMENTO, async (valore) =>
+    Boolean(
+      await prisma.abbonamentoUtente.findUnique({ where: { codice: valore } }),
+    ),
+  );
+
   await prisma.abbonamentoUtente.create({
     data: {
+      codice,
       utenteId: utente.id,
       abbonamentoId,
       stato: "ATTIVO",
@@ -331,10 +350,15 @@ export async function assegnaAbbonamento(dati: FormData) {
   await notificaUtente({
     utenteId: utente.id,
     telegramId: utente.telegramId,
-    titolo: "Abbonamento attivato",
+    titolo: `Abbonamento ${codice} attivato`,
     testo: `Il piano ${piano.nome} è attivo fino al ${dataBreve(scadeIl)}.`,
     url: "/area-personale",
-    messaggioTelegram: `<b>Abbonamento attivato</b>\n\nPiano: <b>${escapeHtml(piano.nome)}</b>\nValido fino al: <b>${escapeHtml(dataBreve(scadeIl) ?? "")}</b>`,
+    messaggioTelegram: [
+      `<b>Abbonamento attivato</b> · <code>${escapeHtml(codice)}</code>`,
+      "",
+      `Piano: <b>${escapeHtml(piano.nome)}</b>`,
+      `Valido fino al: <b>${escapeHtml(dataBreve(scadeIl) ?? "")}</b>`,
+    ].join("\n"),
   });
 
   revalidatePath("/admin");
@@ -365,15 +389,57 @@ export async function aggiornaStatoRichiesta(dati: FormData) {
     await notificaUtente({
       utenteId: richiesta.utente.id,
       telegramId: richiesta.utente.telegramId,
-      titolo: "Aggiornamento richiesta",
+      titolo: `Richiesta${richiesta.codice ? ` ${richiesta.codice}` : ""} · ${etichetteStato[stato]}`,
       testo: `Lo stato della tua richiesta è ora: ${etichetteStato[stato]}.${nota ? ` Nota: ${nota}` : ""}`,
       url: "/area-personale",
-      messaggioTelegram: `<b>Aggiornamento richiesta</b>\n\nNuovo stato: <b>${escapeHtml(etichetteStato[stato])}</b>${nota ? `\n\n${escapeHtml(nota)}` : ""}`,
+      messaggioTelegram: [
+        `<b>Aggiornamento richiesta</b>${richiesta.codice ? ` · <code>${escapeHtml(richiesta.codice)}</code>` : ""}`,
+        "",
+        `Ambito: ${escapeHtml(etichetteAmbito[richiesta.ambito] ?? richiesta.ambito)}`,
+        `Nuovo stato: <b>${escapeHtml(etichetteStato[stato])}</b>`,
+        ...(nota ? ["", escapeHtml(nota)] : []),
+        "",
+        "<i>Rispondi a questo messaggio per scriverci.</i>",
+      ].join("\n"),
     });
   }
 
   revalidatePath("/admin");
   revalidatePath("/area-personale");
+}
+
+/**
+ * Messaggio dell'amministrazione al cliente.
+ *
+ * Restituisce il messaggio creato invece di limitarsi a rivalidare: la
+ * conversazione lo aggiunge subito, senza ricaricare l'intero pannello.
+ */
+export async function inviaMessaggioAlCliente(
+  richiestaId: string,
+  testo: string,
+  soloSulSito = false,
+) {
+  await assicuraAdmin();
+
+  const pulito = testo.trim();
+  if (!richiestaId || !pulito) return null;
+
+  const messaggio = await inviaMessaggioAdmin({
+    richiestaId,
+    testo: pulito.slice(0, LUNGHEZZA_MASSIMA),
+    soloSulSito,
+  });
+  if (!messaggio) return null;
+
+  revalidatePath("/admin");
+  revalidatePath("/area-personale");
+
+  return {
+    id: messaggio.id,
+    testo: messaggio.testo,
+    daAdmin: true,
+    creatoIl: messaggio.creatoIl.toISOString(),
+  };
 }
 
 export async function eliminaRichiesta(dati: FormData) {

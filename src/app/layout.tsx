@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import { JetBrains_Mono, Archivo } from "next/font/google";
 import { TelegramProvider } from "@/components/telegram-provider";
+import { FlussoProvider } from "@/components/flusso-provider";
 import { TemaProvider, scriptTemaIniziale } from "@/components/tema-provider";
 import "./globals.css";
 
@@ -66,7 +67,11 @@ export default function RootLayout({
           strategy="afterInteractive"
         />
         <TemaProvider>
-          <TelegramProvider>{children}</TelegramProvider>
+          <TelegramProvider>
+            {/* Dentro TelegramProvider: il flusso si apre solo a sessione
+                riconosciuta, altrimenti riceverebbe 401. */}
+            <FlussoProvider>{children}</FlussoProvider>
+          </TelegramProvider>
         </TemaProvider>
       </body>
     </html>

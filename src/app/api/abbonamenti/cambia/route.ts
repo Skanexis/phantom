@@ -5,6 +5,8 @@ import { leggiSessione } from "@/lib/sessione";
 import { escapeHtml, notificaAdmin, notificaUtente } from "@/lib/notifiche";
 import { formattaPrezzo } from "@/lib/contenuti";
 import { statoEffettivo } from "@/lib/abbonamenti";
+import { PREFISSO_ABBONAMENTO, codiceUnico } from "@/lib/codici";
+import { riferimentoUtente } from "@/lib/utenti";
 
 const schema = z.object({
   /** Sottoscrizione da sostituire. */
@@ -82,8 +84,15 @@ export async function POST(richiesta: Request) {
     );
   }
 
+  const codice = await codiceUnico(PREFISSO_ABBONAMENTO, async (valore) =>
+    Boolean(
+      await prisma.abbonamentoUtente.findUnique({ where: { codice: valore } }),
+    ),
+  );
+
   const nuovaSottoscrizione = await prisma.abbonamentoUtente.create({
     data: {
+      codice,
       utenteId: sessione.utenteId,
       abbonamentoId: nuovo.id,
       stato: "IN_ATTESA",
@@ -105,8 +114,20 @@ export async function POST(richiesta: Request) {
     messaggioTelegram: `<b>Richiesta di cambio piano</b>\n\nDa: ${escapeHtml(attuale.abbonamento.nome)}\nA: <b>${escapeHtml(nuovo.nome)}</b>\nPrezzo: ${escapeHtml(prezzo)} / ${escapeHtml(nuovo.periodo)}\n\nIl piano attuale resta attivo fino alla conferma.`,
   });
 
+  const utente = await prisma.utente.findUnique({
+    where: { id: sessione.utenteId },
+  });
+
   await notificaAdmin(
-    `<b>Richiesta di cambio piano</b>\n\nUtente: ${escapeHtml(sessione.telegramId)}\nDa: ${escapeHtml(attuale.abbonamento.nome)} (${escapeHtml(statoAttuale)})\nA: <b>${escapeHtml(nuovo.nome)}</b>\nPrezzo: ${escapeHtml(prezzo)}`,
+    [
+      `<b>Richiesta di cambio piano</b> · <code>${escapeHtml(codice)}</code>`,
+      "",
+      `Cliente: ${escapeHtml(riferimentoUtente(utente))}`,
+      `Da: ${escapeHtml(attuale.abbonamento.nome)} (${escapeHtml(statoAttuale)})`,
+      `A: <b>${escapeHtml(nuovo.nome)}</b>`,
+      `Prezzo: ${escapeHtml(prezzo)} / ${escapeHtml(nuovo.periodo)}`,
+    ].join("\n"),
+    { sottoscrizioneId: nuovaSottoscrizione.id, codice },
   );
 
   return NextResponse.json({ id: nuovaSottoscrizione.id }, { status: 201 });

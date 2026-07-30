@@ -1,8 +1,14 @@
 import crypto from "node:crypto";
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { inviaMessaggio } from "@/lib/telegram-bot";
 import { confermaToken } from "@/lib/collegamento";
 import { escapeHtml } from "@/lib/notifiche";
+import {
+  LUNGHEZZA_MASSIMA,
+  inviaMessaggioUtente,
+  richiestaPerRispostaTelegram,
+} from "@/lib/messaggi";
 
 /**
  * Confronto a tempo costante: un `!==` si ferma al primo carattere diverso,
@@ -90,9 +96,72 @@ export async function POST(richiesta: Request) {
   } else if (testo.startsWith("/aiuto")) {
     await inviaMessaggio(
       String(chatId),
-      "Comandi disponibili:\n/start — presentazione e collegamento account\n/aiuto — questo messaggio\n\nPer richieste e abbonamenti usa la Mini App.",
+      "Comandi disponibili:\n/start — presentazione e collegamento account\n/aiuto — questo messaggio\n\nScrivi un messaggio normale per parlare con noi della tua richiesta aperta.",
     );
+  } else if (mittente?.id) {
+    // Messaggio libero: è una risposta del cliente. Finisce nella
+    // conversazione della sua pratica, dove l'amministrazione la vede.
+    await instradaRisposta(String(mittente.id), String(chatId), testo);
   }
 
   return NextResponse.json({ ok: true });
+}
+
+/**
+ * Collega un messaggio ricevuto dal bot alla richiesta giusta.
+ *
+ * Il cliente scrive senza indicare la pratica: prendo l'ultima ancora
+ * aperta, che è quasi sempre quella di cui sta parlando. Se scrive un
+ * codice all'inizio del messaggio ("R-4F2A ...") vince quello.
+ */
+async function instradaRisposta(
+  telegramId: string,
+  chatId: string,
+  testo: string,
+) {
+  const utente = await prisma.utente.findUnique({ where: { telegramId } });
+  if (!utente) {
+    await inviaMessaggio(
+      chatId,
+      "<b>Account non collegato</b>\n\nApri il sito e collega il tuo account per scriverci da qui.",
+    );
+    return;
+  }
+
+  const codice = testo.match(/^([RS]-[A-Z0-9]{4,5})\b[\s,:.-]*/i);
+  let richiesta = null;
+  let corpo = testo;
+
+  if (codice) {
+    richiesta = await prisma.richiesta.findFirst({
+      where: { codice: codice[1].toUpperCase(), utenteId: utente.id },
+    });
+    // Il codice è un riferimento, non parte del messaggio: se identifica
+    // davvero una pratica lo tolgo dal testo.
+    if (richiesta) corpo = testo.slice(codice[0].length).trim() || testo;
+  }
+
+  richiesta ??= await richiestaPerRispostaTelegram(utente.id);
+
+  if (!richiesta) {
+    await inviaMessaggio(
+      chatId,
+      "<b>Nessuna richiesta aperta</b>\n\nNon abbiamo pratiche aperte a tuo nome. Invia una richiesta dal sito e potrai scriverci da qui.",
+    );
+    return;
+  }
+
+  const messaggio = await inviaMessaggioUtente({
+    richiestaId: richiesta.id,
+    utenteId: utente.id,
+    testo: corpo.slice(0, LUNGHEZZA_MASSIMA),
+    daTelegram: true,
+  });
+
+  if (messaggio) {
+    await inviaMessaggio(
+      chatId,
+      `<b>Messaggio ricevuto</b> · <code>${escapeHtml(richiesta.codice ?? "")}</code>\n\nTi rispondiamo al più presto.`,
+    );
+  }
 }

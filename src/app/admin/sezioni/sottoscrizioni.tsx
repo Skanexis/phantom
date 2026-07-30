@@ -3,6 +3,7 @@ import { FiltroAdmin } from "@/components/filtro-admin";
 import { BloccoNuovo, bloccoAdmin } from "@/components/blocco-admin";
 import { BottoneSalva, Campo, classiSelettore } from "@/components/campi-admin";
 import { etichetteStatoAbbonamento } from "@/lib/telegram-bot";
+import { riferimentoUtente } from "@/lib/utenti";
 import { formattaPrezzo } from "@/lib/contenuti";
 import {
   dataBreve,
@@ -119,14 +120,14 @@ export function SezioneSottoscrizioni({
           // Filtri e badge usano lo stato reale: un ATTIVO con la data
           // passata è scaduto, anche se il database non è ancora allineato.
           const stato = statoEffettivo(sottoscrizione);
-          const utente = sottoscrizione.utente.username
-            ? `@${sottoscrizione.utente.username}`
-            : sottoscrizione.utente.telegramId;
+          // Username seguito dall'ID: gli username cambiano, l'ID no.
+          const utente = riferimentoUtente(sottoscrizione.utente);
 
           return {
             id: sottoscrizione.id,
             stato,
             ricerca: [
+              sottoscrizione.codice ?? "",
               utente,
               sottoscrizione.utente.nome ?? "",
               sottoscrizione.abbonamento.nome,
@@ -137,9 +138,16 @@ export function SezioneSottoscrizioni({
             contenuto: (
               <article className={bloccoAdmin}>
                 <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-                  <h3 className="text-[17px] font-semibold tracking-[-0.01em] break-words">
-                    {sottoscrizione.abbonamento.nome}
-                  </h3>
+                  <div className="flex items-baseline gap-3">
+                    {sottoscrizione.codice && (
+                      <span className="mono shrink-0 text-[12px] font-bold tracking-[0.08em] text-[var(--accento)]">
+                        {sottoscrizione.codice}
+                      </span>
+                    )}
+                    <h3 className="text-[17px] font-semibold tracking-[-0.01em] break-words">
+                      {sottoscrizione.abbonamento.nome}
+                    </h3>
+                  </div>
                   <div className="self-start sm:self-auto">
                     <BadgeStato stato={stato} tipo="abbonamento" />
                   </div>

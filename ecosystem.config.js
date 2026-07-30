@@ -39,6 +39,11 @@ module.exports = {
       name: "phantomlab",
       script: ".next/standalone/server.js",
       cwd: CARTELLA,
+      // Istanza singola: il bus degli eventi che alimenta le notifiche in
+      // tempo reale (src/lib/eventi.ts) vive nella memoria del processo.
+      // Passando a "cluster" con più istanze, un evento raggiungerebbe solo
+      // i client connessi allo stesso worker e le notifiche sparirebbero a
+      // caso: servirebbe prima un canale condiviso (Redis pub/sub).
       instances: 1,
       exec_mode: "fork",
 
