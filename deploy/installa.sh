@@ -55,6 +55,18 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
+# Un `sudo git clone` lascia tutti i file a root: npm, la build e PM2
+# falliscono più avanti con errori che non indicano la vera causa.
+PROPRIETARIO="$(stat -c '%U' "$CARTELLA")"
+if [ "$PROPRIETARIO" != "$(whoami)" ]; then
+  echo "ERRORE: $CARTELLA appartiene a '$PROPRIETARIO', non a '$(whoami)'." >&2
+  echo "Succede clonando con 'sudo git clone'. Correggi con:" >&2
+  echo >&2
+  echo "  sudo chown -R $(whoami):$(whoami) $CARTELLA" >&2
+  echo >&2
+  exit 1
+fi
+
 chmod 600 .env
 echo "    Prerequisiti a posto."
 

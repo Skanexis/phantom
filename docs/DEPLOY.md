@@ -296,6 +296,23 @@ rsync -avz --delete \
 
 ---
 
+> ⚠️ **Se `git clone` risponde `Permission denied (publickey)`, non aggirarlo con `sudo`.**
+>
+> `sudo git clone` funziona, ma lascia tutti i file di proprietà di `root`: npm, la build e PM2 falliranno più avanti con errori che non indicano la vera causa (`chmod: Operation not permitted`, `EACCES`).
+>
+> La causa vera è che la chiave SSH dell'utente `phantom` non è registrata su GitHub. Verifica e correggi:
+>
+> ```bash
+> ssh -T git@github.com          # deve salutarti con il nome del repository
+> cat ~/.ssh/id_ed25519.pub      # se manca, rigenerala (passo 5)
+> ```
+>
+> Se hai già clonato con `sudo`, sistema la proprietà:
+>
+> ```bash
+> sudo chown -R phantom:phantom /var/www/phantomlab
+> ```
+
 ### 5C. Proprietà dei file
 
 > **Stai lavorando come `root`?** Guarda il prompt: se vedi `root@...#`, i file appena clonati appartengono a `root` e l'app girerà con l'utente `phantom` senza poter scrivere dove serve.

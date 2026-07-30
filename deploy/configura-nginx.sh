@@ -115,8 +115,14 @@ cp "$CARTELLA/deploy/nginx.conf" "$DISPONIBILI"
 ln -sf "$DISPONIBILI" "$ATTIVI"
 
 if ! nginx -t; then
+  echo >&2
   echo "ERRORE: la configurazione non è valida." >&2
-  echo "Ripristino quella provvisoria in HTTP." >&2
+  echo "Il sito resta servito dalla configurazione precedente." >&2
+  echo >&2
+  echo "Se l'errore è 'unknown directive \"http2\"', questo nginx è" >&2
+  echo "precedente alla 1.25.1: aggiorna deploy/nginx.conf con" >&2
+  echo "  git pull" >&2
+  echo "e riesegui questo script." >&2
   exit 1
 fi
 
