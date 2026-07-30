@@ -1,3 +1,5 @@
+import "dotenv/config";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
 import {
   PREFISSO_ABBONAMENTO,
@@ -12,7 +14,12 @@ import {
  * vecchie richieste resterebbero senza riferimento nelle comunicazioni.
  * Rieseguibile senza rischi: tocca solo le righe con codice nullo.
  */
-const prisma = new PrismaClient();
+// Il progetto usa un driver adapter: senza, PrismaClient non sa come
+// raggiungere il database e fallisce all'istanziazione.
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL,
+});
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
   const richieste = await prisma.richiesta.findMany({
