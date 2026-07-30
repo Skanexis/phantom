@@ -684,7 +684,20 @@ Lo script tocca solo le righe con codice nullo, quindi rieseguirlo non fa danni.
 
 Il badge delle notifiche e le conversazioni si aggiornano da soli tramite `/api/flusso`, una connessione a lunga durata (Server-Sent Events). `deploy/nginx.conf` contiene già il blocco `location = /api/flusso` necessario: senza `proxy_buffering off` gli eventi restano fermi nel buffer di Nginx e l'aggiornamento "in tempo reale" semplicemente non arriva — **senza alcun errore visibile**.
 
-Se hai una configurazione Nginx personalizzata, ricopia quel blocco. Per verificare che il flusso passi davvero:
+Verifica che il blocco sia presente nella configurazione attiva (il file prende il nome dal dominio, non dall'applicazione):
+
+```bash
+grep -c "api/flusso" /etc/nginx/sites-available/phantom-lab.eu
+```
+
+Se risponde `0`, la configurazione sul server è precedente a questa funzionalità. Riapplicala dal repository — con il certificato già presente lo script salta Certbot e si limita a installare `deploy/nginx.conf`:
+
+```bash
+cd /var/www/phantomlab
+sudo bash deploy/configura-nginx.sh
+```
+
+Per verificare che il flusso passi davvero:
 
 ```bash
 curl -N -H "Cookie: phantomlab_sessione=<il-tuo-cookie>" https://phantom-lab.eu/api/flusso
