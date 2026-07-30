@@ -43,6 +43,12 @@ export function PulsanteAttiva({
         setStato("errore");
         setMessaggio(corpo?.errore ?? "Attivazione non riuscita.");
         vibra("errore");
+        // Con un piano già attivo il passaggio si fa dall'area personale,
+        // dove c'è il pannello di cambio: lascio il tempo di leggere il
+        // motivo, poi porto l'utente dove può agire.
+        if (corpo?.cambioPiano) {
+          setTimeout(() => router.push("/area-personale"), 1800);
+        }
         return;
       }
 

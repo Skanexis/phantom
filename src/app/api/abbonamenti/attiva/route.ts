@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { leggiSessione } from "@/lib/sessione";
 import { escapeHtml, notificaAdmin, notificaUtente } from "@/lib/notifiche";
 import { formattaPrezzo } from "@/lib/contenuti";
+import { STATI_APERTI } from "@/lib/abbonamenti";
 
 const schema = z.object({
   slug: z.string().trim().min(1).max(80),
@@ -38,7 +39,7 @@ export async function POST(richiesta: Request) {
     where: {
       utenteId: sessione.utenteId,
       abbonamentoId: piano.id,
-      stato: { in: ["IN_ATTESA", "ATTIVO"] },
+      stato: { in: STATI_APERTI },
     },
   });
   if (esistente) {
@@ -48,6 +49,29 @@ export async function POST(richiesta: Request) {
           esistente.stato === "ATTIVO"
             ? "Questo abbonamento è già attivo."
             : "Hai già una richiesta in attesa per questo piano.",
+      },
+      { status: 409 },
+    );
+  }
+
+  // Con un piano diverso già attivo si passa dal cambio piano: due piani
+  // attivi insieme non hanno significato e lascerebbero l'admin a decidere
+  // quale fatturare.
+  const altroAttivo = await prisma.abbonamentoUtente.findFirst({
+    where: {
+      utenteId: sessione.utenteId,
+      stato: { in: STATI_APERTI },
+    },
+    include: { abbonamento: true },
+  });
+  if (altroAttivo) {
+    return NextResponse.json(
+      {
+        errore:
+          altroAttivo.stato === "IN_ATTESA"
+            ? "Hai già una richiesta in attesa di conferma."
+            : `Hai già il piano ${altroAttivo.abbonamento.nome}. Cambia piano dall'area personale.`,
+        cambioPiano: altroAttivo.stato === "ATTIVO",
       },
       { status: 409 },
     );

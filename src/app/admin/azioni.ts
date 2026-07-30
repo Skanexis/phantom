@@ -3,11 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { richiediAdmin } from "@/lib/sessione";
-import {
-  etichetteStato,
-  etichetteStatoAbbonamento,
-} from "@/lib/telegram-bot";
+import { etichetteStato, etichetteStatoAbbonamento } from "@/lib/telegram-bot";
 import { escapeHtml, notificaUtente } from "@/lib/notifiche";
+import { dataBreve, scadenzaDaPeriodo } from "@/lib/abbonamenti";
 import type {
   StatoAbbonamentoUtente,
   StatoRichiesta,
@@ -70,6 +68,7 @@ export async function aggiornaAbbonamento(dati: FormData) {
       sottotitolo: stringa(dati, "sottotitolo") || null,
       descrizione: stringa(dati, "descrizione") || undefined,
       prezzoCentesimi: Math.round(prezzoEuro * 100),
+      periodo: stringa(dati, "periodo") || undefined,
       ordine: numero(dati, "ordine"),
       attivo: booleano(dati, "attivo"),
       inEvidenza: booleano(dati, "inEvidenza"),
@@ -177,28 +176,165 @@ export async function aggiornaStatoSottoscrizione(dati: FormData) {
   const stato = stringa(dati, "stato") as StatoAbbonamentoUtente;
   if (!id || !statiAbbonamento.includes(stato)) return;
 
+  const precedente = await prisma.abbonamentoUtente.findUnique({
+    where: { id },
+    include: { abbonamento: true },
+  });
+  if (!precedente) return;
+
+  // Data di scadenza esplicita dal pannello, altrimenti calcolata dal
+  // periodo del piano: "mese" e "anno" non possono valere entrambi 30 giorni.
+  const scadenzaManuale = stringa(dati, "scadeIl");
+  const inizio = new Date();
+
   const sottoscrizione = await prisma.abbonamentoUtente.update({
     where: { id },
     data: {
       stato,
-      // L'attivazione fa partire il periodo di un mese.
       ...(stato === "ATTIVO"
         ? {
-            inizioIl: new Date(),
-            scadeIl: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            inizioIl: precedente.stato === "ATTIVO" ? undefined : inizio,
+            scadeIl: scadenzaManuale
+              ? new Date(`${scadenzaManuale}T23:59:59`)
+              : scadenzaDaPeriodo(precedente.abbonamento.periodo, inizio),
           }
-        : {}),
+        : scadenzaManuale
+          ? { scadeIl: new Date(`${scadenzaManuale}T23:59:59`) }
+          : {}),
     },
     include: { utente: true, abbonamento: true },
   });
+
+  // Conferma di un cambio piano: la nota creata dall'API porta l'id della
+  // sottoscrizione da chiudere, che va annullata solo ora — non prima, per
+  // non lasciare il cliente senza servizio durante l'attesa.
+  if (stato === "ATTIVO") {
+    const precedenteId = precedente.note?.match(/\(([^)]+)\)\s*$/)?.[1];
+    if (precedenteId && precedenteId !== id) {
+      await prisma.abbonamentoUtente
+        .updateMany({
+          where: {
+            id: precedenteId,
+            utenteId: sottoscrizione.utenteId,
+            stato: { in: ["ATTIVO", "SOSPESO", "IN_ATTESA"] },
+          },
+          data: { stato: "ANNULLATO" },
+        })
+        .catch(() => undefined);
+    }
+  }
+
+  const scadenza = dataBreve(sottoscrizione.scadeIl);
 
   await notificaUtente({
     utenteId: sottoscrizione.utenteId,
     telegramId: sottoscrizione.utente.telegramId,
     titolo: "Aggiornamento abbonamento",
-    testo: `Il piano ${sottoscrizione.abbonamento.nome} è ora: ${etichetteStatoAbbonamento[stato]}.`,
+    testo: `Il piano ${sottoscrizione.abbonamento.nome} è ora: ${etichetteStatoAbbonamento[stato]}.${
+      stato === "ATTIVO" && scadenza ? ` Rinnovo il ${scadenza}.` : ""
+    }`,
     url: "/area-personale",
-    messaggioTelegram: `<b>Aggiornamento abbonamento</b>\n\nPiano: <b>${escapeHtml(sottoscrizione.abbonamento.nome)}</b>\nStato: <b>${escapeHtml(etichetteStatoAbbonamento[stato])}</b>`,
+    messaggioTelegram: `<b>Aggiornamento abbonamento</b>\n\nPiano: <b>${escapeHtml(sottoscrizione.abbonamento.nome)}</b>\nStato: <b>${escapeHtml(etichetteStatoAbbonamento[stato])}</b>${
+      stato === "ATTIVO" && scadenza ? `\nRinnovo: ${escapeHtml(scadenza)}` : ""
+    }`,
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/area-personale");
+}
+
+/** Proroga rapida: sposta la scadenza in avanti di un ciclo del piano. */
+export async function prorogaSottoscrizione(dati: FormData) {
+  await assicuraAdmin();
+
+  const id = stringa(dati, "id");
+  if (!id) return;
+
+  const sottoscrizione = await prisma.abbonamentoUtente.findUnique({
+    where: { id },
+    include: { abbonamento: true, utente: true },
+  });
+  if (!sottoscrizione) return;
+
+  // Si riparte dalla scadenza attuale se è nel futuro, altrimenti da oggi:
+  // prorogare un abbonamento già scaduto non deve regalare i giorni persi.
+  const base =
+    sottoscrizione.scadeIl && sottoscrizione.scadeIl > new Date()
+      ? sottoscrizione.scadeIl
+      : new Date();
+
+  const nuova = scadenzaDaPeriodo(sottoscrizione.abbonamento.periodo, base);
+
+  await prisma.abbonamentoUtente.update({
+    where: { id },
+    data: { stato: "ATTIVO", scadeIl: nuova },
+  });
+
+  await notificaUtente({
+    utenteId: sottoscrizione.utenteId,
+    telegramId: sottoscrizione.utente.telegramId,
+    titolo: "Abbonamento rinnovato",
+    testo: `Il piano ${sottoscrizione.abbonamento.nome} è rinnovato fino al ${dataBreve(nuova)}.`,
+    url: "/area-personale",
+    messaggioTelegram: `<b>Abbonamento rinnovato</b>\n\nPiano: <b>${escapeHtml(sottoscrizione.abbonamento.nome)}</b>\nValido fino al: <b>${escapeHtml(dataBreve(nuova) ?? "")}</b>`,
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/area-personale");
+}
+
+/** Assegnazione diretta di un piano a un utente, senza richiesta dal sito. */
+export async function assegnaAbbonamento(dati: FormData) {
+  await assicuraAdmin();
+
+  const abbonamentoId = stringa(dati, "abbonamentoId");
+  const riferimento = stringa(dati, "utente");
+  if (!abbonamentoId || !riferimento) return;
+
+  const piano = await prisma.abbonamento.findUnique({
+    where: { id: abbonamentoId },
+  });
+  if (!piano) return;
+
+  // L'admin identifica l'utente come lo conosce: @username o ID Telegram.
+  const pulito = riferimento.replace(/^@/, "");
+  const utente = await prisma.utente.findFirst({
+    where: {
+      OR: [{ telegramId: pulito }, { username: pulito }],
+    },
+  });
+  if (!utente) return;
+
+  // Chiudo eventuali piani aperti: l'assegnazione manuale li sostituisce.
+  await prisma.abbonamentoUtente.updateMany({
+    where: { utenteId: utente.id, stato: { in: ["IN_ATTESA", "ATTIVO"] } },
+    data: { stato: "ANNULLATO" },
+  });
+
+  const inizio = new Date();
+  const scadenzaManuale = stringa(dati, "scadeIl");
+  const scadeIl = scadenzaManuale
+    ? new Date(`${scadenzaManuale}T23:59:59`)
+    : scadenzaDaPeriodo(piano.periodo, inizio);
+
+  await prisma.abbonamentoUtente.create({
+    data: {
+      utenteId: utente.id,
+      abbonamentoId,
+      stato: "ATTIVO",
+      inizioIl: inizio,
+      scadeIl,
+      note: "Assegnato dal pannello admin",
+    },
+  });
+
+  await notificaUtente({
+    utenteId: utente.id,
+    telegramId: utente.telegramId,
+    titolo: "Abbonamento attivato",
+    testo: `Il piano ${piano.nome} è attivo fino al ${dataBreve(scadeIl)}.`,
+    url: "/area-personale",
+    messaggioTelegram: `<b>Abbonamento attivato</b>\n\nPiano: <b>${escapeHtml(piano.nome)}</b>\nValido fino al: <b>${escapeHtml(dataBreve(scadeIl) ?? "")}</b>`,
   });
 
   revalidatePath("/admin");

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { useTelegram, vibra } from "@/components/telegram-provider";
 import { Etichetta } from "@/components/ui";
 
@@ -10,6 +10,20 @@ type Fase = "pronto" | "generazione" | "attesa" | "collegato" | "errore";
 
 const INTERVALLO_MS = 2000;
 const SCADENZA_MS = 10 * 60 * 1000;
+
+/**
+ * Transizione dei blocchi di fase: entrata a scatto, coerente con le
+ * transizioni steps() del resto del sistema.
+ */
+const blocco = {
+  entra: { opacity: 0, y: 10 },
+  visibile: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.24, ease: [0.16, 1, 0.3, 1] as const },
+  },
+  esce: { opacity: 0, y: -6, transition: { duration: 0.14 } },
+};
 
 /**
  * Accesso per chi apre il sito da browser: genera un token, apre il bot
@@ -67,9 +81,20 @@ export function AccessoTelegram({
     // La scheda va aperta ORA, nel gesto di clic: dopo il primo await il
     // browser non collega più window.open al clic e blocca il popup. Resta
     // vuota per una frazione di secondo, poi le assegno l'URL definitivo.
+    //
+    // Niente "noopener" fra le opzioni: con quel flag il browser restituisce
+    // null e perderei il riferimento alla scheda, che resterebbe bianca per
+    // sempre. Taglio il legame dopo, azzerando opener sulla nuova finestra.
     const webApp = window.Telegram?.WebApp;
     const dentroTelegram = Boolean(webApp?.openTelegramLink);
-    const scheda = dentroTelegram ? null : window.open("", "_blank", "noopener");
+    const scheda = dentroTelegram ? null : window.open("", "_blank");
+    if (scheda) {
+      try {
+        scheda.opener = null;
+      } catch {
+        // Alcuni browser rendono opener di sola lettura: non è bloccante.
+      }
+    }
 
     try {
       const risposta = await fetch("/api/auth/collega", { method: "POST" });
@@ -90,9 +115,12 @@ export function AccessoTelegram({
         webApp!.openTelegramLink!(dati.url);
       } else if (scheda && !scheda.closed) {
         scheda.location.href = dati.url;
+      } else {
+        // Popup bloccato: un secondo tentativo fuori dal gesto riesce su
+        // parecchi browser. Se fallisce anche questo resta il pulsante
+        // "Riapri il bot": è un <a> in un clic diretto, mai bloccato.
+        window.open(dati.url, "_blank", "noopener,noreferrer");
       }
-      // Se il popup è stato bloccato comunque, resta il pulsante "Riapri il
-      // bot": è un <a> in un clic diretto, che nessun browser blocca.
 
       let inCorso = false;
 
@@ -141,99 +169,201 @@ export function AccessoTelegram({
   }, [aggiorna, fermaAttesa, router]);
 
   return (
-    <div className="crocini relative border border-[var(--bordo)] p-7 sm:p-10">
-      <Etichetta className="text-[var(--accento)]">
-        Accesso · Telegram
-      </Etichetta>
-      <h2 className="display mt-5 text-[30px] sm:text-[40px]">{titolo}</h2>
-      <p className="mono mt-4 max-w-md text-[12.5px] leading-[1.75] text-[var(--testo-tenue)]">
-        {descrizione}
-      </p>
+    // "user": chi ha chiesto meno movimento nel sistema operativo riceve solo
+    // le dissolvenze, senza i cicli continui di scansione e pulsazione.
+    <MotionConfig reducedMotion="user">
+      <div className="crocini relative overflow-hidden border border-[var(--bordo)] p-6 sm:p-10">
+        {/* Bagliore d'accento appena percepibile dietro l'angolo alto. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-24 -top-24 h-56 w-56 rounded-full bg-[var(--accento)] opacity-[0.07] blur-3xl"
+        />
 
-      <AnimatePresence mode="wait">
-        {fase === "collegato" ? (
-          <motion.div
-            key="collegato"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-8"
-          >
-            <p className="mono border border-[var(--ok)] px-4 py-3 text-[12px] text-[var(--ok)]">
-              ✓ Account collegato. Stiamo aggiornando la pagina…
-            </p>
-          </motion.div>
-        ) : fase === "attesa" ? (
-          <motion.div
-            key="attesa"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-8"
-          >
-            <div className="flex items-center gap-3 border border-[var(--bordo)] px-4 py-3.5">
-              <motion.span
-                animate={{ opacity: [1, 0.2, 1] }}
-                transition={{ duration: 1.2, repeat: Infinity }}
-                className="h-2 w-2 shrink-0 bg-[var(--accento)]"
-              />
-              <p className="mono text-[12px] leading-[1.6] text-[var(--testo-tenue)]">
-                In attesa della conferma da Telegram. Premi{" "}
-                <span className="text-[var(--testo)]">Avvia</span> nel bot.
-              </p>
-            </div>
+        <div className="relative">
+          <Etichetta className="text-[var(--accento)]">
+            Accesso · Telegram
+          </Etichetta>
+          <h2 className="display mt-5 text-[28px] leading-[1.05] sm:text-[40px]">
+            {titolo}
+          </h2>
+          <p className="mono mt-4 max-w-md text-[12.5px] leading-[1.75] text-[var(--testo-tenue)]">
+            {descrizione}
+          </p>
+        </div>
 
-            <div className="mt-3 flex flex-wrap gap-3">
-              {urlBot && (
-                <a
-                  href={urlBot}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mono spinta border border-[var(--bordo)] px-4 py-2.5 text-[11px] uppercase tracking-[0.12em]"
-                >
-                  Riapri il bot
-                </a>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  fermaAttesa();
-                  setFase("pronto");
-                  setUrlBot(null);
-                }}
-                className="mono px-2 text-[11px] uppercase tracking-[0.12em] text-[var(--testo-debole)] transition-colors hover:text-[var(--testo)]"
-              >
-                Annulla
-              </button>
-            </div>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="pronto"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-8"
-          >
-            <button
-              type="button"
-              onClick={avvia}
-              disabled={fase === "generazione"}
-              className="mono spinta border border-[var(--accento)] bg-[var(--accento)] px-6 py-3.5 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--accento-testo)] disabled:opacity-60"
+        <AnimatePresence mode="wait" initial={false}>
+          {fase === "collegato" ? (
+            <motion.div
+              key="collegato"
+              variants={blocco}
+              initial="entra"
+              animate="visibile"
+              exit="esce"
+              className="relative mt-8"
             >
-              {fase === "generazione" ? "Generazione…" : "Apri in Telegram →"}
-            </button>
+              <div className="flex items-center gap-3 border border-[var(--ok)] px-4 py-3.5">
+                <motion.span
+                  initial={{ scale: 0.4, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: "spring", stiffness: 500, damping: 18 }}
+                  className="mono shrink-0 text-[14px] leading-none text-[var(--ok)]"
+                >
+                  ✓
+                </motion.span>
+                <p className="mono text-[12px] leading-[1.6] text-[var(--ok)]">
+                  Account collegato. Stiamo aggiornando la pagina…
+                </p>
+              </div>
 
-            {errore && (
-              <p className="mono mt-4 border border-[var(--allarme)] px-4 py-3 text-[11.5px] leading-[1.6] text-[var(--allarme)]">
-                {errore}
+              {/* Barra di avanzamento: dà un termine visibile all'attesa. */}
+              <div className="mt-2 h-[2px] w-full overflow-hidden bg-[var(--bordo)]">
+                <motion.div
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  transition={{ duration: 1.4, ease: "easeOut" }}
+                  className="h-full origin-left bg-[var(--ok)]"
+                />
+              </div>
+            </motion.div>
+          ) : fase === "attesa" ? (
+            <motion.div
+              key="attesa"
+              variants={blocco}
+              initial="entra"
+              animate="visibile"
+              exit="esce"
+              role="status"
+              className="relative mt-8"
+            >
+              <div className="relative overflow-hidden border border-[var(--bordo)] px-4 py-3.5">
+                {/* Scansione orizzontale: segnala lavoro in corso senza rumore. */}
+                <motion.div
+                  aria-hidden
+                  animate={{ x: ["-100%", "100%"] }}
+                  transition={{
+                    duration: 2.4,
+                    repeat: Infinity,
+                    ease: "linear",
+                  }}
+                  className="pointer-events-none absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-[var(--accento)] to-transparent opacity-[0.08]"
+                />
+                <div className="relative flex items-center gap-3">
+                  <motion.span
+                    animate={{ opacity: [1, 0.15, 1] }}
+                    transition={{
+                      duration: 1.2,
+                      repeat: Infinity,
+                      ease: "easeInOut",
+                    }}
+                    className="h-2 w-2 shrink-0 bg-[var(--accento)]"
+                  />
+                  <p className="mono text-[12px] leading-[1.6] text-[var(--testo-tenue)]">
+                    In attesa della conferma da Telegram. Premi{" "}
+                    <span className="text-[var(--testo)]">Avvia</span> nel bot.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                {urlBot && (
+                  <a
+                    href={urlBot}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => vibra()}
+                    className="mono spinta flex min-h-[44px] items-center justify-center border border-[var(--bordo)] px-4 text-[11px] uppercase tracking-[0.12em] sm:justify-start"
+                  >
+                    Riapri il bot ↗
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    vibra();
+                    fermaAttesa();
+                    setFase("pronto");
+                    setUrlBot(null);
+                  }}
+                  className="mono flex min-h-[44px] items-center justify-center px-2 text-[11px] uppercase tracking-[0.12em] text-[var(--testo-debole)] transition-colors hover:text-[var(--testo)] sm:justify-start"
+                >
+                  Annulla
+                </button>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="pronto"
+              variants={blocco}
+              initial="entra"
+              animate="visibile"
+              exit="esce"
+              className="relative mt-8"
+            >
+              <motion.button
+                type="button"
+                onClick={avvia}
+                disabled={fase === "generazione"}
+                whileTap={{ scale: 0.97 }}
+                transition={{ type: "spring", stiffness: 600, damping: 30 }}
+                className="mono spinta flex min-h-[52px] w-full items-center justify-center gap-2 border border-[var(--accento)] bg-[var(--accento)] px-6 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--accento-testo)] disabled:opacity-60 sm:w-auto"
+              >
+                {fase === "generazione" ? (
+                  <>
+                    <motion.span
+                      animate={{ rotate: 360 }}
+                      transition={{
+                        duration: 0.9,
+                        repeat: Infinity,
+                        ease: "linear",
+                      }}
+                      className="h-3 w-3 border border-current border-t-transparent"
+                    />
+                    Generazione…
+                  </>
+                ) : (
+                  <>
+                    Apri in Telegram
+                    <motion.span
+                      aria-hidden
+                      animate={{ x: [0, 3, 0] }}
+                      transition={{
+                        duration: 1.6,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                      }}
+                    >
+                      →
+                    </motion.span>
+                  </>
+                )}
+              </motion.button>
+
+              <p className="mono mt-3 text-[11px] leading-[1.6] text-[var(--testo-debole)]">
+                Si apre in una nuova scheda ↗
               </p>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
 
-      <p className="mono mt-6 border-t border-dashed border-[var(--bordo)] pt-4 text-[11px] leading-[1.6] text-[var(--testo-debole)]">
-        Nessuna password. L&apos;account è lo stesso che usi nella Mini App: se
-        hai già scritto al bot, ritrovi le tue richieste.
-      </p>
-    </div>
+              <AnimatePresence>
+                {errore && (
+                  <motion.p
+                    initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                    animate={{ opacity: 1, height: "auto", marginTop: 16 }}
+                    exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                    role="alert"
+                    className="mono overflow-hidden border border-[var(--allarme)] px-4 py-3 text-[11.5px] leading-[1.6] text-[var(--allarme)]"
+                  >
+                    {errore}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <p className="mono relative mt-6 border-t border-dashed border-[var(--bordo)] pt-4 text-[11px] leading-[1.6] text-[var(--testo-debole)]">
+          Nessuna password. L&apos;account è lo stesso che usi nella Mini App:
+          se hai già scritto al bot, ritrovi le tue richieste.
+        </p>
+      </div>
+    </MotionConfig>
   );
 }
