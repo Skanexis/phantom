@@ -39,7 +39,7 @@ export async function middleware(richiesta: NextRequest) {
   const destinazione = richiesta.nextUrl.clone();
   destinazione.pathname = "/manutenzione";
   destinazione.search = "";
-  return NextResponse.rewrite(destinazione);
+  return NextResponse.redirect(destinazione);
 }
 
 export const config = {
