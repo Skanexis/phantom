@@ -31,30 +31,16 @@ if (!urlDb) {
   errore('DATABASE_URL deve iniziare con "postgresql://".');
 } else {
   try {
-    // Conta le "@" nella parte credenziali: più di una significa che la
-    // password ne contiene una non codificata, ed è la causa tipica di
-    // 'invalid integer value "ON" for connection option "port"'.
-    const senzaSchema = urlDb.replace(/^postgres(ql)?:\/\//, "");
-    const posizioneUltimaChiocciola = senzaSchema.lastIndexOf("@");
-    const credenziali =
-      posizioneUltimaChiocciola >= 0
-        ? senzaSchema.slice(0, posizioneUltimaChiocciola)
-        : "";
-
-    if ((credenziali.match(/@/g) ?? []).length > 0) {
-      errore(
-        'DATABASE_URL: la password contiene "@" non codificata. È la causa di ' +
-          "errori come 'invalid integer value for connection option port'. " +
-          "Rigenera la password con: openssl rand -hex 24",
-      );
-    }
-
     const analizzato = new URL(urlDb);
     if (!analizzato.hostname) errore("DATABASE_URL: host mancante.");
     if (!analizzato.pathname.replace("/", "")) {
       errore("DATABASE_URL: nome del database mancante.");
     }
 
+    // Una "@" nella password spezza l'URL in modo silenzioso: la parte
+    // successiva viene letta come host, e l'errore emerge solo alla
+    // connessione ('invalid integer value ... for option "port"').
+    // La stringa resta formalmente valida, quindi lo si scopre solo provando.
     const password = analizzato.password;
     if (password && /[:/#?]/.test(decodeURIComponent(password))) {
       avviso(
@@ -139,25 +125,75 @@ if (process.env.SITO_CHIUSO === "true") {
   }
 }
 
+/* --------------------- Connessione reale al database -------------------- */
+
+/**
+ * Verifica sul campo: è l'unico modo affidabile di scoprire una password
+ * con "@". L'URL resta formalmente valido, ma la connessione fallisce.
+ */
+async function provaConnessione() {
+  if (!urlDb) return;
+
+  try {
+    const { Client } = await import("pg");
+    const client = new Client({ connectionString: urlDb, connectionTimeoutMillis: 5000 });
+    await client.connect();
+    await client.query("SELECT 1");
+    await client.end();
+    console.log("Connessione al database riuscita.");
+  } catch (eccezione) {
+    const messaggio =
+      eccezione instanceof Error ? eccezione.message : String(eccezione);
+
+    if (/invalid integer value|port/i.test(messaggio)) {
+      errore(
+        "DATABASE_URL non valido: quasi certamente la password contiene " +
+          '"@" o un altro carattere speciale. Rigenerala con:\n' +
+          "      openssl rand -hex 24\n" +
+          "      sudo -u postgres psql -c \"ALTER USER phantomlab WITH PASSWORD 'nuova';\"",
+      );
+    } else if (/password authentication failed/i.test(messaggio)) {
+      errore(
+        "Password del database errata. Reimpostala con:\n" +
+          "      sudo -u postgres psql -c \"ALTER USER phantomlab WITH PASSWORD 'nuova';\"",
+      );
+    } else if (/ECONNREFUSED|could not connect/i.test(messaggio)) {
+      errore(
+        "PostgreSQL non raggiungibile. Verifica: sudo systemctl status postgresql",
+      );
+    } else if (/does not exist/i.test(messaggio)) {
+      errore(`Database o utente inesistente: ${messaggio}`);
+    } else {
+      errore(`Connessione al database fallita: ${messaggio}`);
+    }
+  }
+}
+
 /* --------------------------------- Esito -------------------------------- */
 
-const errori = problemi.filter((p) => p.livello === "errore");
-const avvisi = problemi.filter((p) => p.livello === "avviso");
+async function main() {
+  await provaConnessione();
 
-if (errori.length > 0) {
-  console.error(`\n${errori.length} errore/i da correggere:\n`);
-  errori.forEach((p) => console.error(`  ✗ ${p.messaggio}`));
+  const errori = problemi.filter((p) => p.livello === "errore");
+  const avvisi = problemi.filter((p) => p.livello === "avviso");
+
+  if (errori.length > 0) {
+    console.error(`\n${errori.length} errore/i da correggere:\n`);
+    errori.forEach((p) => console.error(`  ✗ ${p.messaggio}`));
+  }
+
+  if (avvisi.length > 0) {
+    console.warn(`\n${avvisi.length} avviso/i:\n`);
+    avvisi.forEach((p) => console.warn(`  ! ${p.messaggio}`));
+  }
+
+  if (errori.length === 0 && avvisi.length === 0) {
+    console.log("Configurazione valida.");
+  } else if (errori.length === 0) {
+    console.log("\nConfigurazione valida (con avvisi non bloccanti).");
+  }
+
+  process.exit(errori.length > 0 ? 1 : 0);
 }
 
-if (avvisi.length > 0) {
-  console.warn(`\n${avvisi.length} avviso/i:\n`);
-  avvisi.forEach((p) => console.warn(`  ! ${p.messaggio}`));
-}
-
-if (errori.length === 0 && avvisi.length === 0) {
-  console.log("Configurazione valida.");
-} else if (errori.length === 0) {
-  console.log("\nConfigurazione valida (con avvisi non bloccanti).");
-}
-
-process.exit(errori.length > 0 ? 1 : 0);
+main();

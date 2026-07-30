@@ -879,6 +879,127 @@ gunzip -c /var/backups/phantomlab/phantomlab_AAAAMMGG_HHMMSS.sql.gz | \
 
 ## 15. Risoluzione problemi
 
+> **Prima di tutto**, esegui la diagnosi automatica: segnala la maggior parte dei problemi di configurazione con la relativa soluzione.
+>
+> ```bash
+> cd /var/www/phantomlab
+> npm run verifica-env
+> ```
+
+### Errori di PostgreSQL
+
+<details open>
+<summary><b><code>invalid integer value "ON" for connection option "port"</code></b></summary>
+
+**Causa:** la password del database contiene `@` (o un altro carattere speciale). L'URL viene interpretato male: tutto ciò che segue la `@` è letto come indirizzo del server.
+
+**Soluzione** — genera una password priva di caratteri problematici:
+
+```bash
+NUOVA=$(openssl rand -hex 24)
+echo "Nuova password: $NUOVA"
+sudo -u postgres psql -c "ALTER USER phantomlab WITH PASSWORD '$NUOVA';"
+```
+
+Aggiorna il `.env` con la nuova password:
+
+```bash
+nano /var/www/phantomlab/.env
+```
+
+Verifica:
+
+```bash
+cd /var/www/phantomlab
+npm run verifica-env
+```
+</details>
+
+<details>
+<summary><b><code>role "phantomlab" already exists</code> / <code>database "phantomlab" already exists</code></b></summary>
+
+**Non è un errore bloccante:** i comandi erano già stati eseguiti.
+
+Se non ricordi la password, reimpostala:
+
+```bash
+NUOVA=$(openssl rand -hex 24)
+echo "Nuova password: $NUOVA"
+sudo -u postgres psql -c "ALTER USER phantomlab WITH PASSWORD '$NUOVA';"
+```
+
+Per ripartire da zero (⚠️ **cancella tutti i dati**):
+
+```bash
+sudo -u postgres psql -c "DROP DATABASE IF EXISTS phantomlab;"
+sudo -u postgres psql -c "DROP USER IF EXISTS phantomlab;"
+sudo bash /var/www/phantomlab/deploy/setup-db.sh
+```
+</details>
+
+<details>
+<summary><b>I comandi non fanno nulla / vedo <code>postgres=#</code></b></summary>
+
+Sei **dentro `psql`**: lì funzionano solo comandi SQL, non comandi Linux.
+
+Esci:
+
+```
+\q
+```
+
+Poi ripeti il comando dalla shell normale (`phantom@server:~$`).
+</details>
+
+<details>
+<summary><b>Il terminale mostra <code>&gt;</code> e non risponde</b></summary>
+
+Manca la chiusura di una virgoletta o di una parentesi. Premi `Ctrl+C` e riscrivi il comando.
+</details>
+
+<details>
+<summary><b><code>Peer authentication failed for user "phantomlab"</code></b></summary>
+
+Manca `-h 127.0.0.1`: senza, `psql` usa il socket locale con autenticazione di sistema.
+
+```bash
+PGPASSWORD='LA_TUA_PASSWORD' psql -h 127.0.0.1 -U phantomlab -d phantomlab -c "SELECT 1;"
+```
+</details>
+
+### Errori di Git
+
+<details>
+<summary><b><code>Permission denied (publickey)</code> al clone</b></summary>
+
+La chiave SSH del VPS non è registrata su GitHub. Rivedi il passo 5A/5:
+
+```bash
+cat ~/.ssh/id_ed25519.pub    # copia e aggiungi come Deploy key
+ssh -T git@github.com        # verifica
+```
+</details>
+
+<details>
+<summary><b><code>Support for password authentication was removed</code></b></summary>
+
+GitHub non accetta più la password dell'account. Crea un [Personal Access Token](https://github.com/settings/tokens) con permesso `repo` e usalo al posto della password.
+</details>
+
+<details>
+<summary><b>Il file <code>.env</code> è finito nel repository</b></summary>
+
+Rimuovilo dal tracciamento e cambia **tutti** i segreti che conteneva:
+
+```bash
+git rm --cached .env
+git commit -m "Rimuove .env dal repository"
+git push
+```
+
+> Un segreto finito in un commit resta nella cronologia: vanno rigenerati token del bot, `AUTH_SECRET` e password del database.
+</details>
+
 ### Il sito non risponde (502 Bad Gateway)
 
 ```bash
@@ -962,6 +1083,8 @@ Altrimenti aggiungi il suo ID a `ADMIN_TELEGRAM_IDS` nel `.env` **prima** del su
 
 | Operazione | Comando |
 | --- | --- |
+| Diagnosi configurazione | `npm run verifica-env` |
+| Setup database | `sudo bash deploy/setup-db.sh` |
 | Stato applicazione | `pm2 status` |
 | Log in tempo reale | `pm2 logs phantomlab` |
 | Riavvio | `pm2 reload phantomlab --update-env` |
