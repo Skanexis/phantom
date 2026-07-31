@@ -25,13 +25,19 @@ PORTA=3080
 
 # PID in ascolto sulla porta, se il sistema lo espone. Girando con lo stesso
 # utente del processo, ss mostra il PID senza bisogno di sudo.
+#
+# Porta libera significa che grep non trova nulla ed esce con 1. Sotto
+# "set -e" con "pipefail" quell'uscita interromperebbe l'intero script
+# senza stampare niente, scambiando il caso normale per un errore fatale.
 pid_in_ascolto() {
+  local trovato=""
   if command -v ss > /dev/null 2>&1; then
-    ss -lptnH "sport = :$PORTA" 2>/dev/null |
-      grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2
+    trovato="$(ss -lptnH "sport = :$PORTA" 2> /dev/null |
+      grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2 || true)"
   elif command -v lsof > /dev/null 2>&1; then
-    lsof -tiTCP:"$PORTA" -sTCP:LISTEN 2>/dev/null | head -1
+    trovato="$(lsof -tiTCP:"$PORTA" -sTCP:LISTEN 2> /dev/null | head -1 || true)"
   fi
+  printf '%s' "$trovato"
 }
 
 # Un riavvio andato storto può lasciare un processo orfano che continua a
@@ -73,13 +79,13 @@ sleep 3
 # Lo stato di PM2 va controllato PRIMA della risposta HTTP: se un orfano
 # restasse in ascolto, curl risponderebbe 200 e il controllo direbbe "OK"
 # mentre l'applicazione vera è ferma.
-STATO="$(pm2 jlist 2>/dev/null |
+STATO="$(pm2 jlist 2> /dev/null |
   tr ',' '\n' | grep -A1 "\"name\":\"$APP\"" | grep -o '"status":"[a-z]*"' |
-  head -1 | cut -d'"' -f4)"
+  head -1 | cut -d'"' -f4 || true)"
 
 if [ "$STATO" != "online" ]; then
   echo "    PM2 riporta stato '${STATO:-sconosciuto}'. Log:" >&2
-  pm2 logs "$APP" --lines 30 --nostream >&2
+  pm2 logs "$APP" --lines 30 --nostream >&2 || true
   exit 1
 fi
 

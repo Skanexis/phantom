@@ -17,13 +17,19 @@ PORTA=3080
 
 cd "$CARTELLA"
 
+# Porta libera significa che grep non trova nulla ed esce con 1. Sotto
+# "set -e" con "pipefail" quell'uscita interrompe l'intero script senza
+# stampare niente: il caso normale verrebbe scambiato per un errore fatale.
+# Il "|| true" tiene la ricerca infruttuosa per quello che è.
 pid_in_ascolto() {
+  local trovato=""
   if command -v ss > /dev/null 2>&1; then
-    ss -lptnH "sport = :$PORTA" 2>/dev/null |
-      grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2
+    trovato="$(ss -lptnH "sport = :$PORTA" 2> /dev/null |
+      grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2 || true)"
   elif command -v lsof > /dev/null 2>&1; then
-    lsof -tiTCP:"$PORTA" -sTCP:LISTEN 2>/dev/null | head -1
+    trovato="$(lsof -tiTCP:"$PORTA" -sTCP:LISTEN 2> /dev/null | head -1 || true)"
   fi
+  printf '%s' "$trovato"
 }
 
 echo "==> Stato di partenza"
@@ -64,23 +70,28 @@ pm2 save --force
 echo "==> Verifica"
 sleep 3
 
-STATO="$(pm2 jlist 2>/dev/null |
+# Anche qui il grep può non trovare nulla (app assente dall'elenco): senza
+# "|| true" lo script morirebbe invece di riportare lo stato mancante.
+STATO="$(pm2 jlist 2> /dev/null |
   tr ',' '\n' | grep -A1 "\"name\":\"$APP\"" | grep -o '"status":"[a-z]*"' |
-  head -1 | cut -d'"' -f4)"
+  head -1 | cut -d'"' -f4 || true)"
 
 if [ "$STATO" != "online" ]; then
   echo "    PM2 riporta stato '${STATO:-sconosciuto}'. Log:" >&2
-  pm2 logs "$APP" --lines 30 --nostream >&2
+  pm2 logs "$APP" --lines 30 --nostream >&2 || true
   exit 1
 fi
+
+echo "    PM2: online."
 
 # Una richiesta serve a far scattare la diagnostica del middleware.
 curl -fsS -o /dev/null "http://127.0.0.1:$PORTA/" || true
 sleep 1
 
 echo
-echo "    Processi che hanno risposto (uno solo atteso):"
-pm2 logs "$APP" --lines 40 --nostream 2> /dev/null | grep "\[gate\]" | tail -3
+echo "    Processi che hanno risposto (una sola riga attesa):"
+pm2 logs "$APP" --lines 40 --nostream 2> /dev/null |
+  grep "\[gate\]" | tail -3 || echo "    (nessuna riga [gate]: rifai una richiesta)"
 
 echo
 echo "==> Fatto. Controllo finale dall'esterno:"
