@@ -25,8 +25,13 @@ export async function middleware(richiesta: NextRequest) {
   if (!diagnosticaFatta) {
     diagnosticaFatta = true;
     const grezzo = process.env.SITO_CHIUSO;
+    // Il PID distingue i processi: righe con valori diversi e PID diversi
+    // significano più istanze in ascolto, ognuna con il proprio ambiente.
+    // È il caso in cui il .env sembra ignorato, perché a rispondere è un
+    // processo avviato prima della modifica.
+    const pid = typeof process.pid === "number" ? process.pid : "?";
     console.log(
-      `[gate] SITO_CHIUSO=${JSON.stringify(grezzo)} -> sito ${
+      `[gate] pid=${pid} SITO_CHIUSO=${JSON.stringify(grezzo)} -> sito ${
         gateAttivo() ? "CHIUSO" : "APERTO"
       }`,
     );
