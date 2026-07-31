@@ -25,8 +25,37 @@ type Blocco = {
   vy: number;
   /** Ritardo prima di partire, in millisecondi dall'inizio della fase. */
   ritardo: number;
-  /** Quando > 0 il blocco è staccato e sta tornando: alimenta il colore. */
-  rottura: number;
+  /**
+   * Vero mentre il blocco è staccato: cade con gravità e ruota, e non
+   * viene richiamato verso casa finché la saldatura non lo raggiunge.
+   */
+  staccato: boolean;
+  /** Rotazione del frammento, solo mentre è staccato. */
+  angolo: number;
+  velocitaAngolare: number;
+  /** Da 1 a 0 subito dopo il riaggancio: è il lampo della saldatura. */
+  saldatura: number;
+};
+
+/** Scintilla effimera sprigionata dal punto di saldatura. */
+type Scintilla = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  vita: number;
+};
+
+/**
+ * Onda che ripara: parte dal centro del cedimento e cresce. I blocchi
+ * tornano a posto quando l'onda li raggiunge, non tutti insieme — così la
+ * riparazione si vede procedere invece di essere un rimbalzo unico.
+ */
+type Riparazione = {
+  x: number;
+  y: number;
+  raggio: number;
+  raggioMassimo: number;
 };
 
 const PAROLE = ["PHANTOM", "LAB"];
@@ -55,6 +84,8 @@ export function MarchioCostruito() {
     ).matches;
 
     let blocchi: Blocco[] = [];
+    let scintille: Scintilla[] = [];
+    let riparazioni: Riparazione[] = [];
     let larghezza = 0;
     let altezza = 0;
     let lato = 4;
@@ -145,12 +176,17 @@ export function MarchioCostruito() {
             // Ritardo legato alla colonna: il marchio si costruisce da
             // sinistra a destra invece di comparire tutto insieme.
             ritardo: (x / larghezza) * 900 + Math.random() * 260,
-            rottura: 0,
+            staccato: false,
+            angolo: 0,
+            velocitaAngolare: 0,
+            saldatura: 0,
           });
         }
       }
 
       blocchi = nuovi;
+      scintille = [];
+      riparazioni = [];
       inizioFase = performance.now();
       prossimaRottura = inizioFase + 3800;
     }
@@ -188,28 +224,136 @@ export function MarchioCostruito() {
       contesto!.setTransform(rapporto, 0, 0, rapporto, 0, 0);
     }
 
-    /** Stacca una zona di blocchi: il pezzo "cede" e poi si rimette. */
+    /**
+     * Fa cedere una porzione del marchio.
+     *
+     * La forma del cedimento cambia ogni volta: una zona che esplode, una
+     * banda che scivola, una colonna che frana. Una sola forma ripetuta si
+     * riconosce dopo due giri e smette di attirare l'attenzione.
+     */
     function rompiUnaZona(ora: number) {
       if (blocchi.length === 0) return;
 
-      const centro = blocchi[Math.floor(Math.random() * blocchi.length)];
-      const raggio = 26 + Math.random() * 46;
+      const seme = blocchi[Math.floor(Math.random() * blocchi.length)];
+      const centroX = seme.destinazioneX;
+      const centroY = seme.destinazioneY;
+      const forma = Math.floor(Math.random() * 3);
+
+      // Le misure seguono la dimensione del marchio: in pixel fissi lo
+      // stesso cedimento cancella metà logo sul telefono e sfiora appena
+      // una lettera sul desktop.
+      const raggio = larghezza * (0.05 + Math.random() * 0.06);
+      const spessore = altezza * (0.03 + Math.random() * 0.05);
+      let colpiti = 0;
 
       for (const blocco of blocchi) {
-        const dx = blocco.destinazioneX - centro.destinazioneX;
-        const dy = blocco.destinazioneY - centro.destinazioneY;
-        if (dx * dx + dy * dy > raggio * raggio) continue;
+        if (blocco.staccato) continue;
 
-        const distanza = Math.sqrt(dx * dx + dy * dy) || 1;
-        const spinta = 2.6 + Math.random() * 3.4;
-        blocco.vx += (dx / distanza) * spinta;
-        blocco.vy += (dy / distanza) * spinta - 1.4;
-        blocco.rottura = 1;
+        const dx = blocco.destinazioneX - centroX;
+        const dy = blocco.destinazioneY - centroY;
+
+        let dentro = false;
+        if (forma === 0) {
+          // Cedimento a cratere.
+          dentro = dx * dx + dy * dy <= raggio * raggio;
+        } else if (forma === 1) {
+          // Banda orizzontale: una fascia del marchio si sfila di lato.
+          dentro = Math.abs(dy) <= spessore;
+        } else {
+          // Colonna verticale: una fetta frana verso il basso.
+          dentro = Math.abs(dx) <= spessore;
+        }
+
+        if (!dentro) continue;
+
+        colpiti += 1;
+        blocco.staccato = true;
+        blocco.saldatura = 0;
+        blocco.velocitaAngolare = (Math.random() - 0.5) * 0.34;
+
+        if (forma === 0) {
+          const distanza = Math.sqrt(dx * dx + dy * dy) || 1;
+          const spinta = 2.2 + Math.random() * 3.6;
+          blocco.vx += (dx / distanza) * spinta;
+          blocco.vy += (dy / distanza) * spinta - 1.6;
+        } else if (forma === 1) {
+          const verso = Math.random() < 0.5 ? -1 : 1;
+          blocco.vx += verso * (2.4 + Math.random() * 3.2);
+          blocco.vy += (Math.random() - 0.5) * 1.6;
+        } else {
+          blocco.vx += (Math.random() - 0.5) * 1.8;
+          blocco.vy += 1.4 + Math.random() * 2.2;
+        }
       }
+
+      if (colpiti === 0) return;
+
+      // L'onda di riparazione parte dopo una pausa: il pezzo deve restare
+      // rotto abbastanza da vedersi, altrimenti sembra un tremolio.
+      const raggioMassimo =
+        forma === 0 ? raggio + larghezza * 0.08 : Math.max(larghezza, altezza);
+
+      setTimeout(
+        () => {
+          if (!vivo) return;
+          riparazioni.push({
+            x: centroX,
+            y: centroY,
+            raggio: 0,
+            raggioMassimo,
+          });
+        },
+        520 + Math.random() * 380,
+      );
 
       // Intervallo variabile: a cadenza fissa diventerebbe un battito
       // prevedibile, che è esattamente ciò che stanca guardando.
-      prossimaRottura = ora + 2600 + Math.random() * 3200;
+      prossimaRottura = ora + 3000 + Math.random() * 3400;
+    }
+
+    /**
+     * Avanza le onde di riparazione e libera i blocchi che raggiungono.
+     * Un blocco liberato torna verso casa e, arrivato, lampeggia.
+     */
+    function avanzaRiparazioni() {
+      for (let i = riparazioni.length - 1; i >= 0; i -= 1) {
+        const onda = riparazioni[i];
+        // Anche l'avanzamento segue la scala: a passo fisso la saldatura
+        // striscerebbe sul desktop e sfreccerebbe sul telefono.
+        onda.raggio += Math.max(2.5, larghezza * 0.009);
+
+        for (const blocco of blocchi) {
+          if (!blocco.staccato) continue;
+
+          const dx = blocco.destinazioneX - onda.x;
+          const dy = blocco.destinazioneY - onda.y;
+          if (dx * dx + dy * dy > onda.raggio * onda.raggio) continue;
+
+          // Riagganciato: da qui torna a casa con la molla e smette di
+          // ruotare, così l'atterraggio è netto.
+          blocco.staccato = false;
+          blocco.velocitaAngolare = 0;
+        }
+
+        if (onda.raggio > onda.raggioMassimo) riparazioni.splice(i, 1);
+      }
+    }
+
+    /** Scintille al punto di saldatura, poche e di vita breve. */
+    function accendiScintille(x: number, y: number) {
+      if (scintille.length > 160) return;
+      const quante = 2 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < quante; i += 1) {
+        const angolo = Math.random() * Math.PI * 2;
+        const velocita = 0.6 + Math.random() * 1.8;
+        scintille.push({
+          x,
+          y,
+          vx: Math.cos(angolo) * velocita,
+          vy: Math.sin(angolo) * velocita - 0.5,
+          vita: 1,
+        });
+      }
     }
 
     function disegna(ora: number) {
@@ -219,38 +363,112 @@ export function MarchioCostruito() {
       contesto!.clearRect(0, 0, larghezza, altezza);
 
       if (ora > prossimaRottura && trascorso > 2600) rompiUnaZona(ora);
+      avanzaRiparazioni();
+
+      // Le onde di saldatura, sotto ai blocchi: un anello sottile che si
+      // allarga e sbiadisce mentre percorre la zona da rimettere.
+      for (const onda of riparazioni) {
+        const forza = 1 - onda.raggio / onda.raggioMassimo;
+        if (forza <= 0) continue;
+        contesto!.strokeStyle = accento;
+        contesto!.globalAlpha = Math.max(0, forza) * 0.5;
+        contesto!.lineWidth = 1;
+        contesto!.beginPath();
+        contesto!.arc(onda.x, onda.y, onda.raggio, 0, Math.PI * 2);
+        contesto!.stroke();
+        contesto!.globalAlpha = 1;
+      }
 
       for (const blocco of blocchi) {
         if (trascorso < blocco.ritardo) continue;
 
-        // Molla verso la destinazione con attrito: l'arrivo decelera da
-        // solo, senza bisogno di curve di temporizzazione.
-        const forzaX = (blocco.destinazioneX - blocco.x) * 0.12;
-        const forzaY = (blocco.destinazioneY - blocco.y) * 0.12;
-        blocco.vx = (blocco.vx + forzaX) * 0.82;
-        blocco.vy = (blocco.vy + forzaY) * 0.82;
-        blocco.x += blocco.vx;
-        blocco.y += blocco.vy;
-
-        if (blocco.rottura > 0)
-          blocco.rottura = Math.max(0, blocco.rottura - 0.012);
-
-        const scarto =
+        const distanzaDaCasa =
           Math.abs(blocco.destinazioneX - blocco.x) +
           Math.abs(blocco.destinazioneY - blocco.y);
 
-        // Un blocco lontano dal posto è ancora "in lavorazione": resta
-        // acceso finché non si assesta.
-        contesto!.fillStyle =
-          blocco.rottura > 0.02 ? accento : scarto > 1.5 ? accento : testo;
+        if (blocco.staccato) {
+          // Frammento libero: cade e ruota, senza richiamo verso casa.
+          blocco.vy += 0.16;
+          blocco.vx *= 0.99;
+          blocco.x += blocco.vx;
+          blocco.y += blocco.vy;
+          blocco.angolo += blocco.velocitaAngolare;
+        } else {
+          // Molla verso la destinazione con attrito: l'arrivo decelera da
+          // solo, senza bisogno di curve di temporizzazione.
+          const forzaX = (blocco.destinazioneX - blocco.x) * 0.12;
+          const forzaY = (blocco.destinazioneY - blocco.y) * 0.12;
+          blocco.vx = (blocco.vx + forzaX) * 0.82;
+          blocco.vy = (blocco.vy + forzaY) * 0.82;
+          blocco.x += blocco.vx;
+          blocco.y += blocco.vy;
+          blocco.angolo *= 0.8;
 
-        contesto!.fillRect(
-          Math.round(blocco.x),
-          Math.round(blocco.y),
-          lato,
-          lato,
-        );
+          // Appena rientrato dopo un volo: lampo di saldatura e scintille,
+          // una volta sola per rientro.
+          if (distanzaDaCasa < 1.2 && blocco.saldatura === 0) {
+            const velocita = Math.abs(blocco.vx) + Math.abs(blocco.vy);
+            if (velocita > 0.5) {
+              blocco.saldatura = 1;
+              accendiScintille(blocco.destinazioneX, blocco.destinazioneY);
+            }
+          }
+        }
+
+        if (blocco.saldatura > 0) {
+          blocco.saldatura = Math.max(0, blocco.saldatura - 0.045);
+        }
+
+        const inMovimento = blocco.staccato || distanzaDaCasa > 1.5;
+        contesto!.fillStyle =
+          blocco.saldatura > 0.02 || inMovimento ? accento : testo;
+
+        // La rotazione costa un salvataggio di contesto per blocco: la si
+        // paga solo sui frammenti in volo, che sono una minoranza.
+        if (blocco.angolo > 0.01 || blocco.angolo < -0.01) {
+          const mezzo = lato / 2;
+          contesto!.save();
+          contesto!.translate(blocco.x + mezzo, blocco.y + mezzo);
+          contesto!.rotate(blocco.angolo);
+          contesto!.fillRect(-mezzo, -mezzo, lato, lato);
+          contesto!.restore();
+        } else if (blocco.saldatura > 0.02) {
+          // Durante il lampo il blocco è leggermente più grande: la
+          // saldatura si legge senza introdurre un terzo colore.
+          contesto!.fillRect(
+            Math.round(blocco.x) - 1,
+            Math.round(blocco.y) - 1,
+            lato + 2,
+            lato + 2,
+          );
+        } else {
+          contesto!.fillRect(
+            Math.round(blocco.x),
+            Math.round(blocco.y),
+            lato,
+            lato,
+          );
+        }
       }
+
+      // Scintille sopra a tutto: sono l'ultimo dettaglio della saldatura.
+      contesto!.fillStyle = accento;
+      for (let i = scintille.length - 1; i >= 0; i -= 1) {
+        const scintilla = scintille[i];
+        scintilla.x += scintilla.vx;
+        scintilla.y += scintilla.vy;
+        scintilla.vy += 0.06;
+        scintilla.vita -= 0.035;
+
+        if (scintilla.vita <= 0) {
+          scintille.splice(i, 1);
+          continue;
+        }
+
+        contesto!.globalAlpha = scintilla.vita;
+        contesto!.fillRect(scintilla.x, scintilla.y, 1.5, 1.5);
+      }
+      contesto!.globalAlpha = 1;
 
       animazione = requestAnimationFrame(disegna);
     }
@@ -322,17 +540,34 @@ export function MarchioCostruito() {
       const x = evento.clientX - rettangolo.left;
       const y = evento.clientY - rettangolo.top;
 
+      // Proporzionale al marchio, come per i cedimenti automatici.
+      const raggioTocco = larghezza * 0.12;
+
       for (const blocco of blocchi) {
         const dx = blocco.destinazioneX - x;
         const dy = blocco.destinazioneY - y;
         const distanza2 = dx * dx + dy * dy;
-        if (distanza2 > 90 * 90) continue;
+        if (distanza2 > raggioTocco * raggioTocco) continue;
         const distanza = Math.sqrt(distanza2) || 1;
-        const spinta = 9 * (1 - distanza / 90);
+        const spinta = 8 * (1 - distanza / raggioTocco);
         blocco.vx += (dx / distanza) * spinta;
         blocco.vy += (dy / distanza) * spinta;
-        blocco.rottura = 1;
+        blocco.staccato = true;
+        blocco.saldatura = 0;
+        blocco.velocitaAngolare = (Math.random() - 0.5) * 0.3;
       }
+
+      // La saldatura parte dal punto toccato: il pezzo si rimette da solo
+      // poco dopo, come per i cedimenti automatici.
+      setTimeout(() => {
+        if (!vivo) return;
+        riparazioni.push({
+          x,
+          y,
+          raggio: 0,
+          raggioMassimo: raggioTocco + larghezza * 0.06,
+        });
+      }, 480);
     };
     canvas.addEventListener("pointerdown", alTocco);
 

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { PortaAccesso } from "@/components/porta-accesso";
 import { Rivela } from "@/components/animazioni";
 import { MarchioCostruito, NastroCantiere } from "@/components/costruzione";
+import { Terminale } from "@/components/terminale";
 import { Orologio } from "@/components/scena-attesa";
 import {
   AvanzamentoFinto,
@@ -65,7 +66,10 @@ export default function Manutenzione() {
             dove un canvas non dice nulla. */}
         <h1 className="sr-only">Phantom Lab — sito in costruzione</h1>
 
-        <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col justify-center px-4 py-4 sm:px-8">
+        <div className="relative mx-auto flex w-full max-w-[1400px] flex-1 flex-col justify-center px-4 py-4 sm:px-8">
+          {/* Il registro sta dietro al marchio: racconta il lavoro senza
+              contendere l'attenzione. */}
+          <Terminale />
           <MarchioCostruito />
 
           <p className="mono mt-2 text-center text-[10.5px] tracking-[0.16em] text-[var(--testo-debole)] uppercase">
