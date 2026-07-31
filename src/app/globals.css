@@ -263,7 +263,10 @@ body {
   }
 
   .cursore::after,
-  .nastro {
+  .nastro,
+  /* animate-ping è una classe di Tailwind: non passa da useReducedMotion
+     e senza questa riga continuerebbe a pulsare. */
+  .animate-ping {
     animation: none;
   }
 

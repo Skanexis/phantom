@@ -8,8 +8,27 @@ import { SignJWT, jwtVerify } from "jose";
 export const NOME_COOKIE_GATE = "phantomlab_accesso";
 const DURATA_GIORNI = 30;
 
+/**
+ * Il confronto è tollerante di proposito.
+ *
+ * Con `=== "true"` bastava una maiuscola, un apice non rimosso da dotenv
+ * o uno spazio a fine riga per far risultare il gate spento: il sito
+ * restava aperto al pubblico senza alcun errore visibile, ed è il tipo di
+ * sbaglio che si nota solo quando è tardi.
+ *
+ * In caso di dubbio si sceglie il lato sicuro: qualsiasi valore che non
+ * sia chiaramente "spento" tiene il sito chiuso.
+ */
 export function gateAttivo() {
-  return process.env.SITO_CHIUSO === "true";
+  const grezzo = process.env.SITO_CHIUSO;
+  if (grezzo === undefined) return false;
+
+  const valore = grezzo.trim().replace(/^["']|["']$/g, "").toLowerCase();
+
+  // Vuoto: variabile presente ma non valorizzata, la tratto come assente.
+  if (valore === "") return false;
+
+  return !["false", "0", "no", "off"].includes(valore);
 }
 
 function chiave() {

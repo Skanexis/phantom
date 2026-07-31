@@ -112,11 +112,34 @@ if (!process.env.ADMIN_TELEGRAM_IDS) {
 
 /* ---------------------------- Modalità cantiere -------------------------- */
 
-if (process.env.SITO_CHIUSO === "true") {
+const grezzoGate = process.env.SITO_CHIUSO;
+const gateNormalizzato = (grezzoGate ?? "")
+  .trim()
+  .replace(/^["']|["']$/g, "")
+  .toLowerCase();
+const gateChiuso =
+  gateNormalizzato !== "" &&
+  !["false", "0", "no", "off"].includes(gateNormalizzato);
+
+// Il valore letterale conta: un apice non rimosso o uno spazio finale
+// facevano fallire il vecchio confronto con "true" e il sito restava
+// aperto al pubblico senza alcun segnale.
+if (grezzoGate !== undefined && grezzoGate !== gateNormalizzato) {
+  avviso(
+    `SITO_CHIUSO contiene ${JSON.stringify(grezzoGate)} invece di "true"/"false". ` +
+      `Interpretato come: sito ${gateChiuso ? "CHIUSO" : "APERTO"}.`,
+  );
+}
+
+console.log(
+  `   Modalità cantiere: sito ${gateChiuso ? "CHIUSO al pubblico" : "APERTO a tutti"}`,
+);
+
+if (gateChiuso) {
   const passwordSito = process.env.SITO_PASSWORD;
   if (!passwordSito) {
     errore(
-      'SITO_CHIUSO="true" ma SITO_PASSWORD è vuota: nessuno potrebbe entrare.',
+      'SITO_CHIUSO attivo ma SITO_PASSWORD è vuota: nessuno potrebbe entrare.',
     );
   } else if (passwordSito.length < 8) {
     avviso(

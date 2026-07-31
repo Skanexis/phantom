@@ -17,6 +17,16 @@ const INTERVALLO_MS = 2000;
 const SCADENZA_MS = 10 * 60 * 1000;
 
 /**
+ * Dove ricordiamo il collegamento in corso.
+ *
+ * Se il browser ricarica davvero la pagina invece di ripristinarla dalla
+ * cache, tutto lo stato React sparisce e l'attesa si perde: l'utente
+ * torna dal bot e ritrova il pulsante iniziale, come se non avesse fatto
+ * nulla. Qui il token sopravvive al ricaricamento.
+ */
+const CHIAVE_ATTESA = "phantomlab_collegamento";
+
+/**
  * Transizione dei blocchi di fase: entrata a scatto, coerente con le
  * transizioni steps() del resto del sistema.
  */
@@ -43,6 +53,8 @@ export function AccessoTelegram({
 }) {
   const [fase, setFase] = useState<Fase>("pronto");
   const [urlBot, setUrlBot] = useState<string | null>(null);
+  /** Variante tg://, usata dove Telegram è installato come app. */
+  const [urlNativo, setUrlNativo] = useState<string | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
   const intervallo = useRef<ReturnType<typeof setInterval> | null>(null);
   const scadenza = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -63,12 +75,11 @@ export function AccessoTelegram({
   useEffect(() => fermaAttesa, [fermaAttesa]);
 
   /**
-   * Chiede un token e costruisce il link al bot.
+   * Chiede un token e costruisce i collegamenti al bot.
    *
    * Va fatto PRIMA del clic: è la condizione perché il pulsante possa
    * essere un vero <a href>. Se l'URL arrivasse dopo il clic servirebbe
-   * window.open(), che su mobile viene bloccato e finisce per sostituire
-   * la scheda corrente invece di aprirne una nuova.
+   * window.open(), che su mobile viene bloccato.
    */
   const preparaLink = useCallback(async () => {
     try {
@@ -82,6 +93,7 @@ export function AccessoTelegram({
 
       tokenCorrente.current = dati.token;
       setUrlBot(dati.url);
+      setUrlNativo(dati.urlNativo ?? null);
       setErrore(null);
       return true;
     } catch {
@@ -90,59 +102,18 @@ export function AccessoTelegram({
     }
   }, []);
 
-  // Il timeout a zero sposta la chiamata fuori dal corpo dell'effetto: le
-  // setState di preparaLink avvengono comunque dopo un await, ma così è
-  // evidente anche all'analisi statica che non sono sincrone.
-  useEffect(() => {
-    const avvio = setTimeout(() => void preparaLink(), 0);
-    return () => clearTimeout(avvio);
-  }, [preparaLink]);
-
-  // I browser rallentano setInterval nelle schede in secondo piano fino a
-  // una volta al minuto: tornando dal bot l'utente aspetterebbe a vuoto,
-  // convinto che l'accesso non sia riuscito. Al rientro verifico subito.
-  useEffect(() => {
-    if (fase !== "attesa") return;
-
-    const alRientro = () => {
-      if (document.visibilityState === "visible") verificaOra.current?.();
-    };
-
-    document.addEventListener("visibilitychange", alRientro);
-    window.addEventListener("focus", alRientro);
-    return () => {
-      document.removeEventListener("visibilitychange", alRientro);
-      window.removeEventListener("focus", alRientro);
-    };
-  }, [fase]);
-
   /**
-   * Avvia l'attesa DOPO che il browser ha già seguito il link.
+   * Ciclo che attende la conferma dal bot.
    *
-   * Non apre nulla: il pulsante è un vero <a target="_blank">, e la scheda
-   * la apre il browser come per qualsiasi altro link. È l'unico modo che
-   * funziona su mobile, dove window.open() viene bloccato quasi sempre e
-   * il ripiego fuori dal gesto di clic sostituisce la scheda corrente
-   * invece di aprirne una nuova.
+   * Sta in un ref perché serve a due chiamanti che non possono dipendere
+   * l'uno dall'altro: il clic sul pulsante e il ripristino di un
+   * collegamento lasciato a metà, che avviene al montaggio.
    */
-  const avvia = useCallback(
-    (evento: React.MouseEvent<HTMLAnchorElement>) => {
-      vibra();
+  const avviaAttesa = useRef<((token: string) => void) | null>(null);
 
-      const token = tokenCorrente.current;
-      if (!token || !urlBot) {
-        evento.preventDefault();
-        return;
-      }
-
-      // Dentro Telegram la Mini App usa l'API nativa: seguire il link
-      // aprirebbe il browser interno invece della chat col bot.
-      const webApp = window.Telegram?.WebApp;
-      if (webApp?.openTelegramLink) {
-        evento.preventDefault();
-        webApp.openTelegramLink(urlBot);
-      }
-
+  useEffect(() => {
+    avviaAttesa.current = (token: string) => {
+      fermaAttesa();
       setFase("attesa");
 
       let inCorso = false;
@@ -164,6 +135,7 @@ export function AccessoTelegram({
           if (esito?.stato === "collegato") {
             fermaAttesa();
             verificaOra.current = null;
+            sessionStorage.removeItem(CHIAVE_ATTESA);
             setFase("collegato");
             vibra("successo");
             await aggiorna();
@@ -178,6 +150,9 @@ export function AccessoTelegram({
 
       verificaOra.current = verifica;
       intervallo.current = setInterval(verifica, INTERVALLO_MS);
+      // Una verifica subito: riprendendo un collegamento già confermato
+      // non ha senso aspettare il primo giro del ciclo.
+      void verifica();
 
       scadenza.current = setTimeout(() => {
         fermaAttesa();
@@ -186,11 +161,127 @@ export function AccessoTelegram({
         // Il token scaduto non vale più: ne preparo subito uno nuovo, così
         // il pulsante è di nuovo utilizzabile senza ricaricare la pagina.
         tokenCorrente.current = null;
+        sessionStorage.removeItem(CHIAVE_ATTESA);
         setUrlBot(null);
+        setUrlNativo(null);
         void preparaLink();
       }, SCADENZA_MS);
+    };
+  }, [aggiorna, fermaAttesa, preparaLink, router]);
+
+  // Il timeout a zero sposta la chiamata fuori dal corpo dell'effetto: le
+  // setState di preparaLink avvengono comunque dopo un await, ma così è
+  // evidente anche all'analisi statica che non sono sincrone.
+  useEffect(() => {
+    const avvio = setTimeout(() => {
+      // Un collegamento lasciato a metà riprende da dov'era: senza questo,
+      // tornando dal bot dopo un ricaricamento si ritroverebbe il pulsante
+      // iniziale e il token già confermato andrebbe sprecato.
+      const salvato = sessionStorage.getItem(CHIAVE_ATTESA);
+      if (salvato) {
+        try {
+          const dati = JSON.parse(salvato) as {
+            token: string;
+            url: string;
+            urlNativo: string | null;
+            creatoIl: number;
+          };
+
+          if (Date.now() - dati.creatoIl < SCADENZA_MS) {
+            tokenCorrente.current = dati.token;
+            setUrlBot(dati.url);
+            setUrlNativo(dati.urlNativo);
+            avviaAttesa.current?.(dati.token);
+            return;
+          }
+        } catch {
+          // Valore corrotto: si riparte da un token nuovo.
+        }
+        sessionStorage.removeItem(CHIAVE_ATTESA);
+      }
+
+      void preparaLink();
+    }, 0);
+    return () => clearTimeout(avvio);
+  }, [preparaLink]);
+
+  // I browser rallentano setInterval nelle schede in secondo piano fino a
+  // una volta al minuto: tornando dal bot l'utente aspetterebbe a vuoto,
+  // convinto che l'accesso non sia riuscito. Al rientro verifico subito.
+  //
+  // "pageshow" copre il caso della cronologia: tornando indietro la pagina
+  // viene ripristinata dalla cache senza rieseguire nulla, e senza questo
+  // ascoltatore resterebbe ferma sullo stato di quando l'abbiamo lasciata.
+  useEffect(() => {
+    if (fase !== "attesa") return;
+
+    const alRientro = () => {
+      if (document.visibilityState === "visible") verificaOra.current?.();
+    };
+
+    document.addEventListener("visibilitychange", alRientro);
+    window.addEventListener("focus", alRientro);
+    window.addEventListener("pageshow", alRientro);
+    return () => {
+      document.removeEventListener("visibilitychange", alRientro);
+      window.removeEventListener("focus", alRientro);
+      window.removeEventListener("pageshow", alRientro);
+    };
+  }, [fase]);
+
+  /**
+   * Apre il bot senza perdere la pagina, poi mette in attesa la conferma.
+   *
+   * `https://t.me/...` è una pagina web: il browser la tratta come una
+   * navigazione qualsiasi e ci porta sopra la scheda corrente, che t.me
+   * reindirizza poi verso l'app. Tornando indietro si ritrova la pagina
+   * ricaricata e l'attesa persa — è il motivo per cui `target="_blank"`
+   * da solo non bastava.
+   *
+   * Con `tg://` il collegamento non è una pagina: il browser lo consegna
+   * al sistema operativo, Telegram si apre sopra e questa scheda resta
+   * intatta, con il ciclo di verifica in corso.
+   */
+  const avvia = useCallback(
+    (evento: React.MouseEvent<HTMLAnchorElement>) => {
+      vibra();
+
+      const token = tokenCorrente.current;
+      if (!token || !urlBot) {
+        evento.preventDefault();
+        return;
+      }
+
+      // Ricordo il collegamento prima di uscire: se il browser ricarica
+      // davvero la pagina, al ritorno l'attesa riprende da qui.
+      sessionStorage.setItem(
+        CHIAVE_ATTESA,
+        JSON.stringify({
+          token,
+          url: urlBot,
+          urlNativo,
+          creatoIl: Date.now(),
+        }),
+      );
+
+      // Dentro Telegram la Mini App usa l'API nativa: seguire il link
+      // aprirebbe il browser interno invece della chat col bot.
+      const webApp = window.Telegram?.WebApp;
+      if (webApp?.openTelegramLink) {
+        evento.preventDefault();
+        webApp.openTelegramLink(urlBot);
+      } else if (urlNativo && navigator.maxTouchPoints > 0) {
+        // Su telefono e tablet l'app c'è quasi sempre. Se mancasse, il
+        // sistema non fa nulla e resta il pulsante "Riapri il bot", che
+        // punta all'indirizzo https.
+        evento.preventDefault();
+        window.location.href = urlNativo;
+      }
+      // Su desktop segue il link https in una scheda nuova, come prima.
+
+      avviaAttesa.current?.(token);
     },
-    [aggiorna, fermaAttesa, preparaLink, router, urlBot],
+    [urlBot, urlNativo],
   );
 
   return (

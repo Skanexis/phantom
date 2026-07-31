@@ -105,9 +105,28 @@ export async function consumaToken(token: string) {
   return riga.utente;
 }
 
+function nomeBot() {
+  return process.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, "") ?? null;
+}
+
 /** URL del bot con il token in deep link. */
 export function urlBot(token: string) {
-  const bot = process.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, "");
+  const bot = nomeBot();
   if (!bot) return null;
   return `https://t.me/${bot}?start=${token}`;
+}
+
+/**
+ * Stesso collegamento in schema nativo.
+ *
+ * `https://t.me/...` è una pagina web: il browser la tratta come una
+ * navigazione qualsiasi e sostituisce la scheda corrente, che poi t.me
+ * reindirizza verso l'app. Con `tg://` il browser passa il collegamento
+ * direttamente al sistema operativo: Telegram si apre sopra e la pagina
+ * resta dov'è, in attesa della conferma.
+ */
+export function urlBotNativo(token: string) {
+  const bot = nomeBot();
+  if (!bot) return null;
+  return `tg://resolve?domain=${bot}&start=${token}`;
 }

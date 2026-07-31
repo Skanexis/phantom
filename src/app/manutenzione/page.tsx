@@ -1,5 +1,12 @@
 import type { Metadata } from "next";
 import { PortaAccesso } from "@/components/porta-accesso";
+import { Rivela } from "@/components/animazioni";
+import {
+  BarraLavori,
+  Orologio,
+  SfondoAnimato,
+  TitoloComposto,
+} from "@/components/scena-attesa";
 
 export const metadata: Metadata = {
   title: "Phantom Lab — In arrivo",
@@ -7,68 +14,112 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+const CONTATTI = [
+  {
+    etichetta: "Telegram",
+    valore: "@phantomlabd",
+    url: "https://t.me/phantomlabd",
+  },
+  {
+    etichetta: "Email",
+    valore: "info@phantom-lab.eu",
+    url: "mailto:info@phantom-lab.eu",
+  },
+];
+
 export default function Manutenzione() {
   return (
-    <div className="reticolo flex min-h-full flex-col">
-      <main className="colonne relative mx-auto flex w-full max-w-[1400px] flex-1 flex-col justify-center px-4 py-16 sm:px-8">
+    <div className="reticolo relative flex min-h-full flex-col overflow-hidden">
+      <SfondoAnimato />
+
+      <main className="colonne relative mx-auto flex w-full max-w-[1400px] flex-1 flex-col justify-center px-4 py-12 sm:px-8 sm:py-16">
         <div className="max-w-2xl">
           <PortaAccesso />
 
-          <p className="mono mt-10 text-[11px] uppercase tracking-[0.18em] text-[var(--accento)]">
-            Stato · In preparazione
-          </p>
+          {/* Riga di stato: etichetta a sinistra, orologio a destra. Il
+              tempo che scorre è ciò che rende viva una pagina d'attesa. */}
+          <Rivela ritardo={0.05}>
+            <div className="mt-10 flex items-center justify-between gap-4 border-b border-[var(--bordo)] pb-3">
+              <span className="mono flex items-center gap-2.5 text-[11px] tracking-[0.18em] text-[var(--accento)] uppercase">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping bg-[var(--accento)] opacity-60" />
+                  <span className="relative inline-flex h-1.5 w-1.5 bg-[var(--accento)]" />
+                </span>
+                In preparazione
+              </span>
+              <span className="mono text-[11px] tracking-[0.12em] text-[var(--testo-debole)]">
+                <Orologio />
+              </span>
+            </div>
+          </Rivela>
 
-          <h1 className="display mt-5 text-[clamp(2.75rem,12vw,7rem)]">
-            Phantom
-            <br />
-            Lab
+          <h1 className="display mt-6 text-[clamp(2.75rem,12vw,7rem)] leading-[0.92]">
+            <span className="block">
+              <TitoloComposto testo="Phantom" />
+            </span>
+            <span className="block text-[var(--accento)]">
+              <TitoloComposto testo="Lab" />
+            </span>
           </h1>
 
-          <p className="mono mt-8 max-w-md text-[13px] leading-[1.8] text-[var(--testo-tenue)]">
-            Studio di sviluppo digitale. Siti web, applicazioni, automazioni e
-            bot Telegram su misura.
-          </p>
+          <Rivela ritardo={0.55}>
+            <p className="mono mt-8 max-w-md text-[13px] leading-[1.8] text-[var(--testo-tenue)]">
+              Studio di sviluppo digitale. Siti web, applicazioni, automazioni
+              e bot Telegram su misura.
+            </p>
+          </Rivela>
 
-          <p className="mono mt-4 max-w-md text-[13px] leading-[1.8] text-[var(--testo-tenue)]">
-            Il sito sarà online a breve.
-          </p>
+          <Rivela ritardo={0.65}>
+            <div className="mt-8 max-w-sm">
+              <BarraLavori />
+              <p className="mono mt-3 text-[11px] tracking-[0.14em] text-[var(--testo-debole)] uppercase">
+                Il sito sarà online a breve
+              </p>
+            </div>
+          </Rivela>
 
-          <dl className="mt-12 max-w-sm border-t border-[var(--bordo)]">
-            <div className="flex items-baseline justify-between border-b border-[var(--bordo)] py-3">
-              <dt className="mono text-[11px] uppercase tracking-[0.16em] text-[var(--testo-debole)]">
-                Contatto
-              </dt>
-              <dd>
-                <a
-                  href="https://t.me/phantomlabd"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mono text-[13px] transition-colors hover:text-[var(--accento)]"
+          <Rivela ritardo={0.75}>
+            <dl className="mt-12 max-w-sm border-t border-[var(--bordo)]">
+              {CONTATTI.map((contatto) => (
+                <div
+                  key={contatto.etichetta}
+                  className="group flex items-baseline justify-between gap-4 border-b border-[var(--bordo)]"
                 >
-                  @phantomlabd
-                </a>
-              </dd>
-            </div>
-            <div className="flex items-baseline justify-between border-b border-[var(--bordo)] py-3">
-              <dt className="mono text-[11px] uppercase tracking-[0.16em] text-[var(--testo-debole)]">
-                Email
-              </dt>
-              <dd>
-                <a
-                  href="mailto:info@phantom-lab.eu"
-                  className="mono text-[13px] transition-colors hover:text-[var(--accento)]"
-                >
-                  info@phantom-lab.eu
-                </a>
-              </dd>
-            </div>
-          </dl>
+                  <dt className="mono py-3 text-[11px] tracking-[0.16em] text-[var(--testo-debole)] uppercase">
+                    {contatto.etichetta}
+                  </dt>
+                  <dd>
+                    <a
+                      href={contatto.url}
+                      target={contatto.url.startsWith("http") ? "_blank" : undefined}
+                      rel={
+                        contatto.url.startsWith("http")
+                          ? "noopener noreferrer"
+                          : undefined
+                      }
+                      /* min-h-11: il bersaglio resta comodo anche sul
+                         telefono, dove una riga di testo è troppo sottile. */
+                      className="mono flex min-h-11 items-center gap-2 text-[13px] transition-colors hover:text-[var(--accento)]"
+                    >
+                      {contatto.valore}
+                      <span
+                        aria-hidden="true"
+                        className="text-[var(--testo-debole)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--accento)]"
+                      >
+                        →
+                      </span>
+                    </a>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </Rivela>
         </div>
       </main>
 
-      <footer className="border-t border-[var(--bordo)] px-4 py-6 sm:px-8">
+      <footer className="relative border-t border-[var(--bordo)] px-4 py-6 sm:px-8">
         <div className="mx-auto w-full max-w-[1400px]">
-          <span className="mono text-[11px] uppercase tracking-[0.14em] text-[var(--testo-debole)]">
+          <span className="mono text-[11px] tracking-[0.14em] text-[var(--testo-debole)] uppercase">
             © {new Date().getFullYear()} Phantom Lab · phantom-lab.eu
           </span>
         </div>

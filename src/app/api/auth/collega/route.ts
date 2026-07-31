@@ -4,6 +4,7 @@ import {
   creaTokenCollegamento,
   consumaToken,
   urlBot,
+  urlBotNativo,
 } from "@/lib/collegamento";
 import { creaSessione } from "@/lib/sessione";
 
@@ -19,7 +20,14 @@ export async function POST() {
 
   const token = await creaTokenCollegamento();
 
-  return NextResponse.json({ token, url: urlBot(token) });
+  // Due varianti dello stesso collegamento: quella nativa apre l'app senza
+  // toccare la scheda, quella https serve come ripiego dove tg:// non è
+  // gestito (desktop senza Telegram installato, browser che la bloccano).
+  return NextResponse.json({
+    token,
+    url: urlBot(token),
+    urlNativo: urlBotNativo(token),
+  });
 }
 
 const schema = z.object({ token: z.string().min(10).max(128) });
