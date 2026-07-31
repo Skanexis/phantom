@@ -10,6 +10,7 @@
     "postinstall": "prisma generate",
     "seed": "tsx prisma/seed.ts",
     "assegna-codici": "tsx prisma/assegna-codici.ts",
+    "schermate": "tsx scripts/schermate.ts",
     "promuovi-admin": "tsx scripts/promuovi-admin.ts",
     "verifica-env": "tsx scripts/verifica-env.ts"
   },
@@ -35,6 +36,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
+    "playwright": "^1.62.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
