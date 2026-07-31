@@ -10,7 +10,28 @@ import { NOME_COOKIE_GATE, gateAttivo, verificaTokenGate } from "@/lib/gate";
 // funzionare anche a sito chiuso, altrimenti Telegram accumula errori.
 const PERCORSI_LIBERI = ["/manutenzione", "/api/gate", "/api/telegram/webhook"];
 
+/**
+ * Diagnostica al primo passaggio.
+ *
+ * Il middleware gira nel runtime edge, che riceve le variabili d'ambiente
+ * per una strada diversa dal resto dell'applicazione: se SITO_CHIUSO non
+ * arriva fin qui, il gate resta spento e il sito è pubblico senza che
+ * nulla lo segnali. Una riga nei log di PM2 rende il problema visibile
+ * invece di lasciarlo indovinare.
+ */
+let diagnosticaFatta = false;
+
 export async function middleware(richiesta: NextRequest) {
+  if (!diagnosticaFatta) {
+    diagnosticaFatta = true;
+    const grezzo = process.env.SITO_CHIUSO;
+    console.log(
+      `[gate] SITO_CHIUSO=${JSON.stringify(grezzo)} -> sito ${
+        gateAttivo() ? "CHIUSO" : "APERTO"
+      }`,
+    );
+  }
+
   if (!gateAttivo()) return NextResponse.next();
 
   const { pathname } = richiesta.nextUrl;
