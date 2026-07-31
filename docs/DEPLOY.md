@@ -862,6 +862,46 @@ grep -n "return NextResponse.next()" src/middleware.ts
 
 Se la prima riga del corpo della funzione è un `return NextResponse.next()` incondizionato, il gate è stato disattivato per debug: rimuovi quella riga, poi `bash deploy/build.sh && pm2 restart phantomlab`.
 
+### Il sito ignora il `.env`: modifiche senza effetto
+
+Sintomo tipico: `SITO_CHIUSO="true"` nel file, PM2 riavviato, ma il sito resta aperto a tutti. Lo stesso vale per qualunque altra variabile.
+
+**Causa:** un processo orfano tiene occupata la porta 3080. L'applicazione gestita da PM2 non riesce ad avviarsi e va in ciclo di crash, mentre Nginx continua a servire il processo vecchio — che ha in memoria le variabili di prima. Da fuori il sito funziona, ma non recepisce nulla.
+
+Si riconosce dai log:
+
+```bash
+tail -20 /var/log/phantomlab/error.log
+```
+
+```
+Error: listen EADDRINUSE: address already in use 127.0.0.1:3080
+```
+
+**Rimedio:**
+
+```bash
+pm2 delete phantomlab
+sudo pkill -9 -f "standalone/server.js"
+sleep 2
+sudo ss -lptn 'sport = :3080'     # deve essere vuoto
+cd /var/www/phantomlab
+pm2 start ecosystem.config.js
+pm2 save
+```
+
+**Verifica dall'esterno**, senza accesso al server:
+
+```bash
+curl -sI https://phantom-lab.eu/ | grep -i x-gate
+```
+
+`x-gate: chiuso` a sito riservato, `x-gate: aperto` a sito pubblico. È la decisione presa dal middleware, non un'ipotesi.
+
+> `deploy/aggiorna.sh` libera ora la porta prima di avviare e controlla lo stato di PM2 **prima** della risposta HTTP: con un orfano in ascolto, `curl` rispondeva 200 e l'aggiornamento si dichiarava riuscito mentre l'applicazione vera era ferma.
+
+---
+
 ### 502 Bad Gateway
 
 ```bash

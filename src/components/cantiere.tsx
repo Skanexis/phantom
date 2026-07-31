@@ -188,7 +188,10 @@ export function FraseAlternata() {
 
   useEffect(() => {
     if (ridotto) return;
-    const id = setInterval(() => setIndice((v) => (v + 1) % FRASI.length), 4200);
+    const id = setInterval(
+      () => setIndice((v) => (v + 1) % FRASI.length),
+      4200,
+    );
     return () => clearInterval(id);
   }, [ridotto]);
 

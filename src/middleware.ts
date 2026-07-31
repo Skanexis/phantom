@@ -63,9 +63,13 @@ export async function middleware(richiesta: NextRequest) {
 
   // rewrite, non redirect: l'URL nella barra resta quello richiesto, così la
   // pagina di attesa non rivela l'esistenza di un percorso riservato.
-  const destinazione = richiesta.nextUrl.clone();
-  destinazione.pathname = "/manutenzione";
-  destinazione.search = "";
+  //
+  // L'origine viene da richiesta.url e non da nextUrl.clone(): dietro Nginx
+  // quest'ultimo eredita X-Forwarded-Proto e diventa "https", mentre il
+  // server ascolta in chiaro. Con origini diverse Next considera il rewrite
+  // esterno e prova a proxarsi addosso via TLS, fallendo con EPROTO e
+  // restituendo 500 al posto della pagina di attesa.
+  const destinazione = new URL("/manutenzione", richiesta.url);
   const risposta = NextResponse.rewrite(destinazione);
   risposta.headers.set("x-gate", "chiuso");
   return risposta;
