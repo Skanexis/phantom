@@ -11,6 +11,7 @@
     "seed": "tsx prisma/seed.ts",
     "assegna-codici": "tsx prisma/assegna-codici.ts",
     "schermate": "tsx scripts/schermate.ts",
+    "video": "tsx scripts/video-attesa.ts",
     "promuovi-admin": "tsx scripts/promuovi-admin.ts",
     "verifica-env": "tsx scripts/verifica-env.ts"
   },
