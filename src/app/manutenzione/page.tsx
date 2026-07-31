@@ -7,12 +7,21 @@ import {
   SfondoAnimato,
   TitoloComposto,
 } from "@/components/scena-attesa";
+import {
+  AvanzamentoFinto,
+  FraseAlternata,
+  GiorniDiLavoro,
+  RegistroCantiere,
+} from "@/components/cantiere";
 
 export const metadata: Metadata = {
   title: "Phantom Lab — In arrivo",
   description: "Studio di sviluppo digitale. Sito in preparazione.",
   robots: { index: false, follow: false },
 };
+
+/** Inizio dei lavori: alimenta il contatore dei giorni. */
+const INIZIO_LAVORI = "2026-07-01";
 
 const CONTATTI = [
   {
@@ -33,11 +42,11 @@ export default function Manutenzione() {
       <SfondoAnimato />
 
       <main className="colonne relative mx-auto flex w-full max-w-[1400px] flex-1 flex-col justify-center px-4 py-12 sm:px-8 sm:py-16">
-        <div className="max-w-2xl">
+        <div className="w-full max-w-2xl">
           <PortaAccesso />
 
-          {/* Riga di stato: etichetta a sinistra, orologio a destra. Il
-              tempo che scorre è ciò che rende viva una pagina d'attesa. */}
+          {/* Riga di stato: etichetta viva a sinistra, orologio a destra.
+              Il tempo che scorre è ciò che rende viva una pagina d'attesa. */}
           <Rivela ritardo={0.05}>
             <div className="mt-10 flex items-center justify-between gap-4 border-b border-[var(--bordo)] pb-3">
               <span className="mono flex items-center gap-2.5 text-[11px] tracking-[0.18em] text-[var(--accento)] uppercase">
@@ -45,7 +54,7 @@ export default function Manutenzione() {
                   <span className="absolute inline-flex h-full w-full animate-ping bg-[var(--accento)] opacity-60" />
                   <span className="relative inline-flex h-1.5 w-1.5 bg-[var(--accento)]" />
                 </span>
-                In preparazione
+                Lavori in corso
               </span>
               <span className="mono text-[11px] tracking-[0.12em] text-[var(--testo-debole)]">
                 <Orologio />
@@ -63,14 +72,31 @@ export default function Manutenzione() {
           </h1>
 
           <Rivela ritardo={0.55}>
-            <p className="mono mt-8 max-w-md text-[13px] leading-[1.8] text-[var(--testo-tenue)]">
-              Studio di sviluppo digitale. Siti web, applicazioni, automazioni
-              e bot Telegram su misura.
-            </p>
+            <FraseAlternata />
           </Rivela>
 
-          <Rivela ritardo={0.65}>
-            <div className="mt-8 max-w-sm">
+          <Rivela ritardo={0.6}>
+            <AvanzamentoFinto />
+          </Rivela>
+
+          {/* Il cantiere: le voci si completano una dopo l'altra e il ciclo
+              riparte, così si vede che dietro c'è del lavoro. */}
+          <Rivela ritardo={0.7}>
+            <div className="mt-10 border-t border-[var(--bordo)] pt-5">
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="mono text-[11px] tracking-[0.16em] text-[var(--testo-debole)] uppercase">
+                  Cosa stiamo costruendo
+                </span>
+                <span className="mono text-[11px] text-[var(--testo-debole)]">
+                  giorno <GiorniDiLavoro dallaData={INIZIO_LAVORI} />
+                </span>
+              </div>
+              <RegistroCantiere />
+            </div>
+          </Rivela>
+
+          <Rivela ritardo={0.8}>
+            <div className="mt-10 max-w-sm">
               <BarraLavori />
               <p className="mono mt-3 text-[11px] tracking-[0.14em] text-[var(--testo-debole)] uppercase">
                 Il sito sarà online a breve
@@ -78,8 +104,8 @@ export default function Manutenzione() {
             </div>
           </Rivela>
 
-          <Rivela ritardo={0.75}>
-            <dl className="mt-12 max-w-sm border-t border-[var(--bordo)]">
+          <Rivela ritardo={0.9}>
+            <dl className="mt-10 max-w-sm border-t border-[var(--bordo)]">
               {CONTATTI.map((contatto) => (
                 <div
                   key={contatto.etichetta}
@@ -91,7 +117,9 @@ export default function Manutenzione() {
                   <dd>
                     <a
                       href={contatto.url}
-                      target={contatto.url.startsWith("http") ? "_blank" : undefined}
+                      target={
+                        contatto.url.startsWith("http") ? "_blank" : undefined
+                      }
                       rel={
                         contatto.url.startsWith("http")
                           ? "noopener noreferrer"

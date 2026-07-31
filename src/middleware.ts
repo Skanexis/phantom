@@ -32,7 +32,15 @@ export async function middleware(richiesta: NextRequest) {
     );
   }
 
-  if (!gateAttivo()) return NextResponse.next();
+  // L'intestazione dice dall'esterno cosa ha deciso il middleware: i log
+  // di PM2 richiedono l'accesso al server, questa si legge con un curl.
+  const chiuso = gateAttivo();
+
+  if (!chiuso) {
+    const risposta = NextResponse.next();
+    risposta.headers.set("x-gate", "aperto");
+    return risposta;
+  }
 
   const { pathname } = richiesta.nextUrl;
 
@@ -58,7 +66,9 @@ export async function middleware(richiesta: NextRequest) {
   const destinazione = richiesta.nextUrl.clone();
   destinazione.pathname = "/manutenzione";
   destinazione.search = "";
-  return NextResponse.rewrite(destinazione);
+  const risposta = NextResponse.rewrite(destinazione);
+  risposta.headers.set("x-gate", "chiuso");
+  return risposta;
 }
 
 export const config = {
