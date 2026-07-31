@@ -65,11 +65,17 @@ export async function POST(richiesta: Request) {
 
   const corpo = schema.safeParse(await richiesta.json().catch(() => null));
   if (!corpo.success) {
-    return NextResponse.json({ errore: "Password non valida." }, { status: 400 });
+    return NextResponse.json(
+      { errore: "Password non valida." },
+      { status: 400 },
+    );
   }
 
   if (!confrontoSicuro(corpo.data.password, attesa)) {
-    return NextResponse.json({ errore: "Password non valida." }, { status: 401 });
+    return NextResponse.json(
+      { errore: "Password non valida." },
+      { status: 401 },
+    );
   }
 
   tentativi.delete(ip);

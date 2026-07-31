@@ -94,28 +94,7 @@ export function Spunta({
   );
 }
 
-/** min-h-11 = 44px, la soglia sotto la quale il tocco diventa impreciso. */
-export function BottoneSalva({ testo = "Salva" }: { testo?: string }) {
-  return (
-    <button
-      type="submit"
-      className="mono spinta min-h-11 w-full border border-[var(--bordo-pieno)] bg-[var(--bordo-pieno)] px-5 py-2.5 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--testo-inverso)] sm:w-auto sm:text-[11px]"
-    >
-      {testo}
-    </button>
-  );
-}
-
-export function BottoneElimina({ testo = "Elimina" }: { testo?: string }) {
-  return (
-    <button
-      type="submit"
-      className="mono min-h-11 w-full border border-[var(--bordo)] px-4 py-2.5 text-[12px] uppercase tracking-[0.12em] text-[var(--testo-tenue)] transition-colors hover:border-[var(--allarme)] hover:text-[var(--allarme)] sm:w-auto sm:text-[11px]"
-    >
-      {testo}
-    </button>
-  );
-}
+export { BottoneElimina, BottoneSalva } from "@/components/bottoni-admin";
 
 export const iconeDisponibili = [
   "globe",

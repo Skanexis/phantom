@@ -1,7 +1,4 @@
-import {
-  etichetteStato,
-  etichetteStatoAbbonamento,
-} from "@/lib/telegram-bot";
+import { etichetteStato, etichetteStatoAbbonamento } from "@/lib/telegram-bot";
 
 /* Stato reso con un quadrato colorato + testo mono: nessun riempimento morbido. */
 const colori: Record<string, string> = {

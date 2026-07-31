@@ -6,7 +6,12 @@ import { Icona } from "@/components/icone";
 import { FaqLista } from "@/components/faq-lista";
 import { PulsanteAttiva } from "@/components/pulsante-attiva";
 import { PiedePagina } from "@/components/piede-pagina";
-import { BottonePieno, Etichetta, Freccia, TitoloSezione } from "@/components/ui";
+import {
+  BottonePieno,
+  Etichetta,
+  Freccia,
+  TitoloSezione,
+} from "@/components/ui";
 import { caricaDatiHomepage, formattaPrezzo, testo } from "@/lib/contenuti";
 
 export const dynamic = "force-dynamic";
@@ -70,9 +75,7 @@ export default async function Home() {
                       nome={servizio.icona}
                       className="h-7 w-7 text-[var(--testo)] transition-colors group-hover:text-[var(--accento)]"
                     />
-                    <Etichetta>
-                      {String(indice + 1).padStart(2, "0")}
-                    </Etichetta>
+                    <Etichetta>{String(indice + 1).padStart(2, "0")}</Etichetta>
                   </div>
                   <h3 className="display mt-10 text-[26px] sm:text-[32px]">
                     {servizio.titolo}
@@ -236,7 +239,10 @@ export default async function Home() {
         {/* 06 — FAQ */}
         <Sezione id="faq">
           <Rivela>
-            <TitoloSezione numero="06" titolo={testo(contenuti, "faq.titolo")} />
+            <TitoloSezione
+              numero="06"
+              titolo={testo(contenuti, "faq.titolo")}
+            />
           </Rivela>
           <div className="mt-12">
             <FaqLista voci={faq} />
@@ -262,7 +268,9 @@ export default async function Home() {
               <Voce key={contatto.id}>
                 <a
                   href={contatto.url ?? "#"}
-                  target={contatto.url?.startsWith("http") ? "_blank" : undefined}
+                  target={
+                    contatto.url?.startsWith("http") ? "_blank" : undefined
+                  }
                   rel="noreferrer"
                   className="group flex items-center justify-between border-b border-r border-[var(--bordo)] p-7 transition-colors hover:bg-[var(--accento)]"
                 >
@@ -302,13 +310,7 @@ export default async function Home() {
   );
 }
 
-function Sezione({
-  children,
-  id,
-}: {
-  children: React.ReactNode;
-  id?: string;
-}) {
+function Sezione({ children, id }: { children: React.ReactNode; id?: string }) {
   return (
     <section
       id={id}

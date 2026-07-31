@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { creaTokenCollegamento, consumaToken, urlBot } from "@/lib/collegamento";
+import {
+  creaTokenCollegamento,
+  consumaToken,
+  urlBot,
+} from "@/lib/collegamento";
 import { creaSessione } from "@/lib/sessione";
 
 /** Avvia il collegamento: restituisce token e link al bot. */

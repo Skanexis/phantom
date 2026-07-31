@@ -31,7 +31,9 @@ export function FaqLista({ voci }: { voci: VoceFaq[] }) {
             >
               <span
                 className={`mono shrink-0 text-[11px] tracking-[0.12em] ${
-                  aperta ? "text-[var(--accento)]" : "text-[var(--testo-debole)]"
+                  aperta
+                    ? "text-[var(--accento)]"
+                    : "text-[var(--testo-debole)]"
                 }`}
               >
                 {String(indice + 1).padStart(2, "0")}

@@ -7,6 +7,7 @@ import {
   classiSelettore,
 } from "@/components/campi-admin";
 import { ConversazioneAdmin } from "@/components/conversazione-admin";
+import { CodiceCopiabile } from "@/components/dettagli";
 import { etichetteAmbito, etichetteStato } from "@/lib/telegram-bot";
 import { riferimentoUtente } from "@/lib/utenti";
 import {
@@ -60,10 +61,16 @@ export function SezioneRichieste({
               <div className="flex items-baseline gap-3">
                 {/* Il codice sostituisce il progressivo: è l'identificatore
                     che compare anche nelle comunicazioni al cliente. */}
-                <span className="mono shrink-0 text-[12px] font-bold tracking-[0.08em] text-[var(--accento)]">
-                  {richiesta.codice ??
-                    String(richieste.length - indice).padStart(3, "0")}
-                </span>
+                {richiesta.codice ? (
+                  <CodiceCopiabile
+                    codice={richiesta.codice}
+                    className="shrink-0 text-[12px] font-bold tracking-[0.08em] text-[var(--accento)]"
+                  />
+                ) : (
+                  <span className="mono shrink-0 text-[12px] font-bold tracking-[0.08em] text-[var(--testo-debole)]">
+                    {String(richieste.length - indice).padStart(3, "0")}
+                  </span>
+                )}
                 <h3 className="text-[17px] font-semibold tracking-[-0.01em] break-words">
                   {etichetteAmbito[richiesta.ambito]} · {richiesta.nomeContatto}
                 </h3>

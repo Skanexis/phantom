@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { vibra } from "@/components/telegram-provider";
 
 type Scheda = { id: string; etichetta: string; contatore?: number };
 
@@ -46,6 +47,7 @@ export function SchedeAdmin({
   // Porta in vista la scheda scelta: toccandone una parzialmente coperta,
   // altrimenti resta a metà fuori dallo schermo.
   const seleziona = (id: string, elemento: HTMLButtonElement) => {
+    vibra();
     setAttiva(id);
     elemento.scrollIntoView({
       behavior: "smooth",

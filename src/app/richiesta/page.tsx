@@ -61,7 +61,9 @@ export default async function PaginaRichiesta({
 
             {piano && (
               <p className="mono mt-6 border border-[var(--accento)] px-4 py-3 text-[12px]">
-                <span className="text-[var(--testo-tenue)]">Piano selezionato: </span>
+                <span className="text-[var(--testo-tenue)]">
+                  Piano selezionato:{" "}
+                </span>
                 <span className="font-semibold">{piano.nome}</span>
               </p>
             )}

@@ -14,7 +14,15 @@ import { EventEmitter } from "node:events";
  * emitter, lasciando invariata l'interfaccia.
  */
 
-export type TipoEvento = "notifica" | "messaggio" | "richiesta" | "abbonamento";
+export type TipoEvento =
+  | "notifica"
+  | "messaggio"
+  /** Segnale effimero "sta scrivendo": non viene mai salvato. */
+  | "scrittura"
+  /** Conferma di lettura, per le spunte sui messaggi inviati. */
+  | "letto"
+  | "richiesta"
+  | "abbonamento";
 
 export type Evento = {
   tipo: TipoEvento;

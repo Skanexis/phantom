@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { vibra } from "@/components/telegram-provider";
 import { useFlusso } from "@/components/flusso-provider";
 import { Conversazione, type MessaggioVista } from "@/components/conversazione";
+import { Scheletro } from "@/components/dettagli";
 
 /**
  * Conversazione nell'area personale, richiudibile sotto ogni richiesta.
@@ -41,15 +42,7 @@ export function ConversazioneCliente({
     [ascolta, richiestaId, aperta],
   );
 
-  async function apri() {
-    vibra();
-    const prossimo = !aperta;
-    setAperta(prossimo);
-    if (!prossimo) return;
-
-    setDaLeggere(0);
-    if (messaggi) return;
-
+  const carica = useCallback(async () => {
     try {
       const risposta = await fetch(
         `/api/messaggi?richiesta=${encodeURIComponent(richiestaId)}`,
@@ -58,6 +51,49 @@ export function ConversazioneCliente({
       setMessaggi(Array.isArray(dati?.messaggi) ? dati.messaggi : []);
     } catch {
       setMessaggi([]);
+    }
+  }, [richiestaId]);
+
+  const apri = useCallback(
+    async (forzaApertura = false) => {
+      vibra();
+      const prossimo = forzaApertura || !aperta;
+      setAperta(prossimo);
+      if (!prossimo) return;
+
+      setDaLeggere(0);
+      if (!messaggi) await carica();
+    },
+    [aperta, carica, messaggi],
+  );
+
+  /**
+   * Scorrimento verso sinistra sulla scheda per aprire la conversazione.
+   *
+   * Il pulsante resta il modo principale: il gesto è una scorciatoia per
+   * chi lo conosce, non l'unico accesso.
+   */
+  const tocco = useRef<{ x: number; y: number } | null>(null);
+
+  function inizioTocco(evento: React.TouchEvent) {
+    tocco.current = {
+      x: evento.touches[0].clientX,
+      y: evento.touches[0].clientY,
+    };
+  }
+
+  function fineTocco(evento: React.TouchEvent) {
+    if (!tocco.current) return;
+    const partenza = tocco.current;
+    tocco.current = null;
+
+    const dx = evento.changedTouches[0].clientX - partenza.x;
+    const dy = evento.changedTouches[0].clientY - partenza.y;
+
+    // Orizzontale e deciso: senza il confronto con dy uno scorrimento
+    // verticale della pagina aprirebbe la conversazione per sbaglio.
+    if (dx < -60 && Math.abs(dx) > Math.abs(dy) * 2 && !aperta) {
+      void apri(true);
     }
   }
 
@@ -76,10 +112,14 @@ export function ConversazioneCliente({
   );
 
   return (
-    <div className="mt-4 sm:pl-[calc(1rem+3ch)]">
+    <div
+      className="mt-4 sm:pl-[calc(1rem+3ch)]"
+      onTouchStart={inizioTocco}
+      onTouchEnd={fineTocco}
+    >
       <button
         type="button"
-        onClick={apri}
+        onClick={() => void apri()}
         aria-expanded={aperta}
         className="mono flex min-h-11 items-center gap-2 text-[11px] uppercase tracking-[0.12em] text-[var(--testo-tenue)] transition-colors hover:text-[var(--accento)]"
       >
@@ -91,6 +131,13 @@ export function ConversazioneCliente({
           ▸
         </motion.span>
         {aperta ? "Chiudi conversazione" : "Scrivici"}
+        {/* Un gesto invisibile non esiste: l'indizio compare solo dove il
+            gesto è disponibile, cioè sul touch. */}
+        {!aperta && (
+          <span className="text-[9px] text-[var(--testo-debole)] sm:hidden">
+            o scorri ←
+          </span>
+        )}
         {daLeggere > 0 && !aperta && (
           <motion.span
             key={daLeggere}
@@ -114,9 +161,9 @@ export function ConversazioneCliente({
           >
             <div className="mt-3">
               {messaggi === null ? (
-                <p className="mono border border-[var(--bordo)] p-4 text-[12px] text-[var(--testo-tenue)]">
-                  Caricamento…
-                </p>
+                <div className="border border-[var(--bordo)] p-4">
+                  <Scheletro righe={4} />
+                </div>
               ) : (
                 <>
                   <p className="mono mb-2 text-[11px] text-[var(--testo-debole)]">

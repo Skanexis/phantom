@@ -24,6 +24,15 @@ import { Rivela, Scaglionato, Voce } from "@/components/animazioni";
 import { AccessoTelegram } from "@/components/accesso-telegram";
 import { GestioneAbbonamento } from "@/components/gestione-abbonamento";
 import { ConversazioneCliente } from "@/components/conversazione-cliente";
+import { Avatar } from "@/components/avatar";
+import { TrascinaAggiorna } from "@/components/trascina-aggiorna";
+import {
+  BollinoNovita,
+  CodiceCopiabile,
+  NumeroAnimato,
+  PercorsoStato,
+} from "@/components/dettagli";
+import { recente, saluto } from "@/lib/tempo";
 import { Etichetta } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -111,11 +120,27 @@ export default async function AreaPersonale() {
     <div className="flex min-h-full flex-col">
       <Navigazione />
 
+      {/* Il gesto di trascinamento vale per l'intera pagina: è quello che
+          si tenta d'istinto per aggiornare un elenco sul telefono. */}
+      <TrascinaAggiorna />
+
       <main className="colonne relative mx-auto w-full max-w-[1400px] flex-1 px-4 py-10 sm:px-8 sm:py-16">
         <Rivela>
           <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--bordo)] pb-6">
             <div className="min-w-0">
-              <Etichetta>Account · {utente.telegramId}</Etichetta>
+              <div className="flex items-center gap-3">
+                <Avatar nome={utente.nome} urlFoto={utente.urlFoto} />
+                <div className="min-w-0">
+                  <Etichetta>
+                    {utente.username
+                      ? `@${utente.username}`
+                      : `ID ${utente.telegramId}`}
+                  </Etichetta>
+                  <p className="mono mt-1 text-[11px] text-[var(--testo-debole)]">
+                    {saluto()}
+                  </p>
+                </div>
+              </div>
               <h1 className="display mt-4 text-[clamp(1.9rem,7vw,4rem)] break-words">
                 {utente.nome ?? "Utente"}
               </h1>
@@ -152,9 +177,10 @@ export default async function AreaPersonale() {
           ].map((dato) => (
             <Voce key={dato.etichetta}>
               <div className="border-r border-[var(--bordo)] p-4 sm:p-6">
-                <span className="display block text-[30px] sm:text-[44px]">
-                  {String(dato.valore).padStart(2, "0")}
-                </span>
+                <NumeroAnimato
+                  valore={dato.valore}
+                  className="display block text-[30px] sm:text-[44px]"
+                />
                 <Etichetta className="mt-1 block">{dato.etichetta}</Etichetta>
               </div>
             </Voce>
@@ -288,17 +314,38 @@ export default async function AreaPersonale() {
           </div>
 
           {richieste.length === 0 ? (
-            <div className="flex flex-col items-start justify-between gap-4 border-b border-[var(--bordo)] py-8 sm:flex-row sm:items-center">
+            /* Non un vicolo cieco: chi arriva qui la prima volta trova
+               cosa scrivere e cosa aspettarsi, non solo un pulsante. */
+            <div className="border-b border-[var(--bordo)] py-8">
               {/* Neutro di proposito: chi ha avuto solo richieste annullate
                   non ne vede nessuna qui, e "mai inviata" sarebbe falso. */}
               <p className="mono text-[12.5px] text-[var(--testo-tenue)]">
                 Nessuna richiesta da seguire al momento.
               </p>
+
+              <ul className="mt-5 flex flex-col gap-2.5">
+                {[
+                  "Descrivi l'obiettivo in un paragrafo: a cosa deve servire.",
+                  "Indica tempi e budget, anche approssimativi.",
+                  "Ti rispondiamo su Telegram, di solito in giornata.",
+                ].map((suggerimento, indice) => (
+                  <li
+                    key={suggerimento}
+                    className="mono flex gap-3 text-[12px] leading-[1.65] text-[var(--testo-tenue)]"
+                  >
+                    <span className="shrink-0 text-[var(--accento)]">
+                      {String(indice + 1).padStart(2, "0")}
+                    </span>
+                    {suggerimento}
+                  </li>
+                ))}
+              </ul>
+
               <Link
                 href="/richiesta"
-                className="mono spinta flex min-h-12 w-full shrink-0 items-center justify-center border border-[var(--bordo-pieno)] bg-[var(--bordo-pieno)] px-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--testo-inverso)] sm:w-auto"
+                className="mono spinta mt-6 flex min-h-12 w-full items-center justify-center border border-[var(--bordo-pieno)] bg-[var(--bordo-pieno)] px-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--testo-inverso)] sm:w-auto sm:self-start"
               >
-                Invia richiesta
+                Invia la prima richiesta
               </Link>
             </div>
           ) : (
@@ -322,21 +369,29 @@ export default async function AreaPersonale() {
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-baseline gap-4">
                           {/* Il codice è il riferimento che il cliente cita
-                            scrivendoci, e che compare nei messaggi del bot. */}
-                          <span
-                            className={`mono text-[12px] font-bold tracking-[0.08em] ${
-                              attiva
-                                ? "text-[var(--accento)]"
-                                : "text-[var(--testo-debole)]"
-                            }`}
-                          >
-                            {richiesta.codice ?? "—"}
-                          </span>
+                            scrivendoci: un tocco lo copia negli appunti. */}
+                          {richiesta.codice ? (
+                            <CodiceCopiabile
+                              codice={richiesta.codice}
+                              className={`text-[12px] font-bold tracking-[0.08em] ${
+                                attiva
+                                  ? "text-[var(--accento)]"
+                                  : "text-[var(--testo-debole)]"
+                              }`}
+                            />
+                          ) : (
+                            <span className="mono text-[12px] text-[var(--testo-debole)]">
+                              —
+                            </span>
+                          )}
                           <h3 className="text-[17px] font-semibold tracking-[-0.01em] sm:text-[18px]">
                             {etichetteAmbito[richiesta.ambito]}
                           </h3>
                         </div>
-                        <BadgeStato stato={richiesta.stato} />
+                        <div className="flex items-center gap-2">
+                          {recente(richiesta.aggiornatoIl) && <BollinoNovita />}
+                          <BadgeStato stato={richiesta.stato} />
+                        </div>
                       </div>
 
                       {/* "3 mesi fa" dice quello che una data non dice: nel solo
@@ -345,6 +400,19 @@ export default async function AreaPersonale() {
                       <p className="mono mt-2 text-[11px] text-[var(--testo-debole)]">
                         Aggiornata {quandoAggiornata(richiesta.aggiornatoIl)}
                       </p>
+
+                      {/* Il badge dice dove sei, non quanto manca: il percorso
+                          mostra il processo intero e la posizione dentro. */}
+                      <PercorsoStato
+                        tappe={["Ricevuta", "In lavorazione", "Completata"]}
+                        corrente={
+                          richiesta.stato === "COMPLETATA"
+                            ? 2
+                            : richiesta.stato === "NUOVA"
+                              ? 0
+                              : 1
+                        }
+                      />
 
                       {tocca && (
                         <p className="mono mt-3 border border-[var(--accento)] px-3.5 py-2.5 text-[11.5px] leading-[1.6] text-[var(--accento)]">

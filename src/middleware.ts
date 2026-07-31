@@ -8,11 +8,7 @@ import { NOME_COOKIE_GATE, gateAttivo, verificaTokenGate } from "@/lib/gate";
 
 // Percorsi sempre raggiungibili: il webhook del bot deve continuare a
 // funzionare anche a sito chiuso, altrimenti Telegram accumula errori.
-const PERCORSI_LIBERI = [
-  "/manutenzione",
-  "/api/gate",
-  "/api/telegram/webhook",
-];
+const PERCORSI_LIBERI = ["/manutenzione", "/api/gate", "/api/telegram/webhook"];
 
 export async function middleware(richiesta: NextRequest) {
   if (!gateAttivo()) return NextResponse.next();
@@ -46,5 +42,7 @@ export async function middleware(richiesta: NextRequest) {
 
 export const config = {
   // Esclude asset statici e immagini: non serve valutarli a ogni richiesta.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+  ],
 };

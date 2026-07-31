@@ -14,6 +14,7 @@ export async function GET() {
       nome: utente.nome,
       cognome: utente.cognome,
       username: utente.username,
+      urlFoto: utente.urlFoto,
       ruolo: utente.ruolo,
     },
   });

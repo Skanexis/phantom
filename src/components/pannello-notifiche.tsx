@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { vibra } from "@/components/telegram-provider";
 import { useFlusso } from "@/components/flusso-provider";
+import { tempoRelativo } from "@/lib/tempo";
 import { Etichetta } from "@/components/ui";
 
 type Notifica = {
@@ -105,11 +106,8 @@ export function PannelloNotifiche({ iniziali }: { iniziali: Notifica[] }) {
                 <p className="text-[14.5px] font-semibold tracking-[-0.01em]">
                   {notifica.titolo}
                 </p>
-                <span className="mono shrink-0 text-[10px] uppercase tracking-[0.1em] text-[var(--testo-debole)]">
-                  {new Date(notifica.creatoIl).toLocaleDateString("it-IT", {
-                    day: "2-digit",
-                    month: "2-digit",
-                  })}
+                <span className="mono shrink-0 text-[10px] tracking-[0.06em] text-[var(--testo-debole)]">
+                  {tempoRelativo(notifica.creatoIl)}
                 </span>
               </div>
               <p className="mono mt-1 text-[12.5px] leading-[1.65] break-words text-[var(--testo-tenue)] sm:text-[12px]">

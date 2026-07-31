@@ -164,8 +164,24 @@ export async function segnaMessaggiLetti({
   /** Vero per segnare letti i messaggi scritti dall'admin (lato cliente). */
   daAdmin: boolean;
 }) {
-  await prisma.messaggio.updateMany({
+  const esito = await prisma.messaggio.updateMany({
     where: { richiestaId, daAdmin, letto: false },
     data: { letto: true },
+  });
+
+  // Niente da segnalare se non è cambiato nulla: evita di svegliare i
+  // client a ogni apertura della stessa conversazione già letta.
+  if (esito.count === 0) return;
+
+  const richiesta = await prisma.richiesta.findUnique({
+    where: { id: richiestaId },
+    select: { utenteId: true },
+  });
+
+  // La conferma va a chi ha scritto i messaggi appena letti.
+  pubblica({
+    tipo: "letto",
+    destinatario: daAdmin ? CANALE_ADMIN : (richiesta?.utenteId ?? ""),
+    dati: { richiestaId, daAdmin },
   });
 }

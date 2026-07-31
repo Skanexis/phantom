@@ -23,7 +23,18 @@ type Evento = {
   richiestaId?: string;
   codice?: string;
   messaggio?: MessaggioEvento;
+  /** Presente su "scrittura" e "letto": chi ha generato il segnale. */
+  daAdmin?: boolean;
 };
+
+/** Tipi di evento ascoltati sul flusso, registrati uno per uno. */
+const TIPI_EVENTO = [
+  "stato",
+  "notifica",
+  "messaggio",
+  "scrittura",
+  "letto",
+] as const;
 
 type Contesto = {
   /** Notifiche non lette, aggiornate in tempo reale. */
@@ -76,12 +87,12 @@ export function FlussoProvider({ children }: { children: React.ReactNode }) {
       for (const ascoltatore of ascoltatori.current) ascoltatore(dati);
     };
 
-    for (const tipo of ["stato", "notifica", "messaggio"]) {
+    for (const tipo of TIPI_EVENTO) {
       sorgente.addEventListener(tipo, gestisci);
     }
 
     return () => {
-      for (const tipo of ["stato", "notifica", "messaggio"]) {
+      for (const tipo of TIPI_EVENTO) {
         sorgente.removeEventListener(tipo, gestisci);
       }
       sorgente.close();

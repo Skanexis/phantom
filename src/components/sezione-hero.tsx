@@ -2,7 +2,12 @@
 
 import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
-import { BottonePieno, BottoneVuoto, Etichetta, Freccia } from "@/components/ui";
+import {
+  BottonePieno,
+  BottoneVuoto,
+  Etichetta,
+  Freccia,
+} from "@/components/ui";
 
 const SCATTO = [0.16, 1, 0.3, 1] as const;
 
@@ -70,7 +75,11 @@ export function SezioneHero({
           <motion.aside
             initial={{ opacity: 0, x: ridotto ? 0 : 20 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: ridotto ? 0 : 0.4, duration: 0.6, ease: SCATTO }}
+            transition={{
+              delay: ridotto ? 0 : 0.4,
+              duration: 0.6,
+              ease: SCATTO,
+            }}
             className="flex flex-col justify-end border-l border-[var(--bordo)] pl-6 lg:pl-8"
           >
             <p className="mono text-[13px] leading-[1.75] text-[var(--testo-tenue)]">
@@ -88,7 +97,9 @@ export function SezioneHero({
                   className="flex items-baseline justify-between border-b border-[var(--bordo)] py-2.5"
                 >
                   <dt className="etichetta">{chiave}</dt>
-                  <dd className="mono text-[13px] text-[var(--testo)]">{valore}</dd>
+                  <dd className="mono text-[13px] text-[var(--testo)]">
+                    {valore}
+                  </dd>
                 </div>
               ))}
             </dl>

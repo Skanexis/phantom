@@ -23,7 +23,10 @@ const nextConfig: NextConfig = {
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' https://telegram.org",
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https://t.me",
+      // Le foto profilo Telegram arrivano da t.me e dai CDN del servizio:
+      // senza questi host il browser blocca l'immagine in silenzio e resta
+      // solo il ripiego con le iniziali.
+      "img-src 'self' data: blob: https://t.me https://*.telegram-cdn.org https://*.cdn.telegram.org",
       "font-src 'self' data:",
       "connect-src 'self' https://telegram.org",
       "frame-ancestors 'self' https://web.telegram.org https://telegram.org",

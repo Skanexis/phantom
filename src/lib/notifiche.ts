@@ -40,12 +40,16 @@ export async function notificaUtente({
   if (telegramId) {
     await inviaMessaggio(
       telegramId,
-      messaggioTelegram ?? `<b>${escapeHtml(titolo)}</b>\n\n${escapeHtml(testo)}`,
+      messaggioTelegram ??
+        `<b>${escapeHtml(titolo)}</b>\n\n${escapeHtml(testo)}`,
     );
   }
 }
 
-export async function notificaAdmin(testo: string, dati?: Record<string, unknown>) {
+export async function notificaAdmin(
+  testo: string,
+  dati?: Record<string, unknown>,
+) {
   // Anche il pannello admin aperto in una scheda riceve l'aggiornamento.
   pubblica({ tipo: "notifica", destinatario: CANALE_ADMIN, dati: dati ?? {} });
 

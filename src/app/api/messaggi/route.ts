@@ -40,6 +40,7 @@ export async function GET(richiestaHttp: Request) {
       id: messaggio.id,
       testo: messaggio.testo,
       daAdmin: messaggio.daAdmin,
+      letto: messaggio.letto,
       creatoIl: messaggio.creatoIl.toISOString(),
     })),
   });
