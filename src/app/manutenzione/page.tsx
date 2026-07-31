@@ -1,12 +1,8 @@
 import type { Metadata } from "next";
 import { PortaAccesso } from "@/components/porta-accesso";
 import { Rivela } from "@/components/animazioni";
-import {
-  BarraLavori,
-  Orologio,
-  SfondoAnimato,
-  TitoloComposto,
-} from "@/components/scena-attesa";
+import { MarchioCostruito, NastroCantiere } from "@/components/costruzione";
+import { Orologio } from "@/components/scena-attesa";
 import {
   AvanzamentoFinto,
   FraseAlternata,
@@ -22,6 +18,15 @@ export const metadata: Metadata = {
 
 /** Inizio dei lavori: alimenta il contatore dei giorni. */
 const INIZIO_LAVORI = "2026-07-01";
+
+const NASTRO = [
+  "Lavori in corso",
+  "Siti web",
+  "Applicazioni",
+  "Automazioni",
+  "Bot Telegram",
+  "Presto online",
+];
 
 const CONTATTI = [
   {
@@ -39,109 +44,106 @@ const CONTATTI = [
 export default function Manutenzione() {
   return (
     <div className="reticolo relative flex min-h-full flex-col overflow-hidden">
-      <SfondoAnimato />
-
-      <main className="colonne relative mx-auto flex w-full max-w-[1400px] flex-1 flex-col justify-center px-4 py-12 sm:px-8 sm:py-16">
-        <div className="w-full max-w-2xl">
+      <main className="relative flex flex-1 flex-col">
+        {/* Barra di stato in cima: la chiave d'accesso resta il logo. */}
+        <div className="mx-auto flex w-full max-w-[1400px] items-center justify-between gap-4 px-4 pt-6 sm:px-8">
           <PortaAccesso />
-
-          {/* Riga di stato: etichetta viva a sinistra, orologio a destra.
-              Il tempo che scorre è ciò che rende viva una pagina d'attesa. */}
-          <Rivela ritardo={0.05}>
-            <div className="mt-10 flex items-center justify-between gap-4 border-b border-[var(--bordo)] pb-3">
-              <span className="mono flex items-center gap-2.5 text-[11px] tracking-[0.18em] text-[var(--accento)] uppercase">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping bg-[var(--accento)] opacity-60" />
-                  <span className="relative inline-flex h-1.5 w-1.5 bg-[var(--accento)]" />
-                </span>
-                Lavori in corso
-              </span>
-              <span className="mono text-[11px] tracking-[0.12em] text-[var(--testo-debole)]">
-                <Orologio />
-              </span>
-            </div>
-          </Rivela>
-
-          <h1 className="display mt-6 text-[clamp(2.75rem,12vw,7rem)] leading-[0.92]">
-            <span className="block">
-              <TitoloComposto testo="Phantom" />
+          <span className="mono flex items-center gap-2.5 text-[10.5px] tracking-[0.16em] text-[var(--accento)] uppercase sm:text-[11px]">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping bg-[var(--accento)] opacity-60" />
+              <span className="relative inline-flex h-1.5 w-1.5 bg-[var(--accento)]" />
             </span>
-            <span className="block text-[var(--accento)]">
-              <TitoloComposto testo="Lab" />
-            </span>
-          </h1>
+            In costruzione
+          </span>
+          <span className="mono text-[11px] tracking-[0.12em] text-[var(--testo-debole)]">
+            <Orologio />
+          </span>
+        </div>
 
-          <Rivela ritardo={0.55}>
-            <FraseAlternata />
-          </Rivela>
+        {/* Il marchio che si costruisce da solo: è il centro della pagina.
+            Il titolo resta nel documento per chi usa uno screen reader,
+            dove un canvas non dice nulla. */}
+        <h1 className="sr-only">Phantom Lab — sito in costruzione</h1>
 
-          <Rivela ritardo={0.6}>
-            <AvanzamentoFinto />
-          </Rivela>
+        <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col justify-center px-4 py-4 sm:px-8">
+          <MarchioCostruito />
 
-          {/* Il cantiere: le voci si completano una dopo l'altra e il ciclo
-              riparte, così si vede che dietro c'è del lavoro. */}
-          <Rivela ritardo={0.7}>
-            <div className="mt-10 border-t border-[var(--bordo)] pt-5">
-              <div className="flex items-baseline justify-between gap-4">
-                <span className="mono text-[11px] tracking-[0.16em] text-[var(--testo-debole)] uppercase">
-                  Cosa stiamo costruendo
-                </span>
-                <span className="mono text-[11px] text-[var(--testo-debole)]">
-                  giorno <GiorniDiLavoro dallaData={INIZIO_LAVORI} />
-                </span>
-              </div>
-              <RegistroCantiere />
-            </div>
-          </Rivela>
+          <p className="mono mt-2 text-center text-[10.5px] tracking-[0.16em] text-[var(--testo-debole)] uppercase">
+            Tocca il marchio
+          </p>
+        </div>
 
-          <Rivela ritardo={0.8}>
-            <div className="mt-10 max-w-sm">
-              <BarraLavori />
-              <p className="mono mt-3 text-[11px] tracking-[0.14em] text-[var(--testo-debole)] uppercase">
-                Il sito sarà online a breve
-              </p>
-            </div>
-          </Rivela>
+        <NastroCantiere voci={NASTRO} />
 
-          <Rivela ritardo={0.9}>
-            <dl className="mt-10 max-w-sm border-t border-[var(--bordo)]">
-              {CONTATTI.map((contatto) => (
-                <div
-                  key={contatto.etichetta}
-                  className="group flex items-baseline justify-between gap-4 border-b border-[var(--bordo)]"
-                >
-                  <dt className="mono py-3 text-[11px] tracking-[0.16em] text-[var(--testo-debole)] uppercase">
-                    {contatto.etichetta}
-                  </dt>
-                  <dd>
-                    <a
-                      href={contatto.url}
-                      target={
-                        contatto.url.startsWith("http") ? "_blank" : undefined
-                      }
-                      rel={
-                        contatto.url.startsWith("http")
-                          ? "noopener noreferrer"
-                          : undefined
-                      }
-                      /* min-h-11: il bersaglio resta comodo anche sul
-                         telefono, dove una riga di testo è troppo sottile. */
-                      className="mono flex min-h-11 items-center gap-2 text-[13px] transition-colors hover:text-[var(--accento)]"
+        {/* Il dettaglio dei lavori sta sotto la piega: chi vuole saperne di
+            più scorre, chi no si ferma all'animazione. */}
+        <div className="mx-auto w-full max-w-[1400px] px-4 py-12 sm:px-8 sm:py-16">
+          <div className="grid gap-10 lg:grid-cols-2 lg:gap-16">
+            <div>
+              <Rivela>
+                <FraseAlternata />
+              </Rivela>
+
+              <Rivela ritardo={0.1}>
+                <AvanzamentoFinto />
+              </Rivela>
+
+              <Rivela ritardo={0.2}>
+                <dl className="mt-10 max-w-sm border-t border-[var(--bordo)]">
+                  {CONTATTI.map((contatto) => (
+                    <div
+                      key={contatto.etichetta}
+                      className="group flex items-baseline justify-between gap-4 border-b border-[var(--bordo)]"
                     >
-                      {contatto.valore}
-                      <span
-                        aria-hidden="true"
-                        className="text-[var(--testo-debole)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--accento)]"
-                      >
-                        →
-                      </span>
-                    </a>
-                  </dd>
+                      <dt className="mono py-3 text-[11px] tracking-[0.16em] text-[var(--testo-debole)] uppercase">
+                        {contatto.etichetta}
+                      </dt>
+                      <dd>
+                        <a
+                          href={contatto.url}
+                          target={
+                            contatto.url.startsWith("http")
+                              ? "_blank"
+                              : undefined
+                          }
+                          rel={
+                            contatto.url.startsWith("http")
+                              ? "noopener noreferrer"
+                              : undefined
+                          }
+                          /* min-h-11: bersaglio comodo anche sul telefono,
+                             dove una riga di testo è troppo sottile. */
+                          className="mono flex min-h-11 items-center gap-2 text-[13px] transition-colors hover:text-[var(--accento)]"
+                        >
+                          {contatto.valore}
+                          <span
+                            aria-hidden="true"
+                            className="text-[var(--testo-debole)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--accento)]"
+                          >
+                            →
+                          </span>
+                        </a>
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </Rivela>
+            </div>
+
+            <Rivela ritardo={0.15}>
+              <div className="border-t border-[var(--bordo)] pt-5">
+                <div className="flex items-baseline justify-between gap-4">
+                  <span className="mono text-[11px] tracking-[0.16em] text-[var(--testo-debole)] uppercase">
+                    Cosa stiamo costruendo
+                  </span>
+                  <span className="mono text-[11px] text-[var(--testo-debole)]">
+                    giorno <GiorniDiLavoro dallaData={INIZIO_LAVORI} />
+                  </span>
                 </div>
-              ))}
-            </dl>
-          </Rivela>
+                <RegistroCantiere />
+              </div>
+            </Rivela>
+          </div>
         </div>
       </main>
 
