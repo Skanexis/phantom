@@ -57,8 +57,11 @@ export function SchedeAdmin({
   };
 
   return (
-    <div className="mt-10">
-      <div className="relative">
+    <div className="mt-5 sm:mt-10">
+      {/* Le schede restano agganciate sotto la navigazione: scendendo nel
+          contenuto si cambia sezione senza tornare in cima. top-14 è
+          l'altezza dell'intestazione del sito. */}
+      <div className="relative sticky top-14 z-40 bg-[var(--sfondo)]">
         <div
           ref={barra}
           role="tablist"

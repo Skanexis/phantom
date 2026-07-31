@@ -1,6 +1,8 @@
 import { BadgeStato } from "@/components/badge-stato";
 import { FiltroAdmin } from "@/components/filtro-admin";
-import { BloccoNuovo, bloccoAdmin } from "@/components/blocco-admin";
+import { BloccoNuovo } from "@/components/blocco-admin";
+import { SchedaRichiesta } from "@/components/scheda-richiesta";
+import { CodiceCopiabile } from "@/components/dettagli";
 import { BottoneSalva, Campo, classiSelettore } from "@/components/campi-admin";
 import { etichetteStatoAbbonamento } from "@/lib/telegram-bot";
 import { riferimentoUtente } from "@/lib/utenti";
@@ -136,37 +138,27 @@ export function SezioneSottoscrizioni({
               .join(" ")
               .toLowerCase(),
             contenuto: (
-              <article className={bloccoAdmin}>
-                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-                  <div className="flex items-baseline gap-3">
-                    {sottoscrizione.codice && (
-                      <span className="mono shrink-0 text-[12px] font-bold tracking-[0.08em] text-[var(--accento)]">
-                        {sottoscrizione.codice}
-                      </span>
-                    )}
-                    <h3 className="text-[17px] font-semibold tracking-[-0.01em] break-words">
-                      {sottoscrizione.abbonamento.nome}
-                    </h3>
-                  </div>
-                  <div className="self-start sm:self-auto">
-                    <BadgeStato stato={stato} tipo="abbonamento" />
-                  </div>
-                </div>
-
-                {/* In colonna su mobile: i dati separati da "·" su una riga
-                    sola diventano illeggibili quando vanno a capo. */}
-                <dl className="mono mt-3 flex flex-col gap-1 text-[13px] text-[var(--testo-tenue)] sm:mt-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:text-[12px]">
+              /* Come per le richieste: chiusa è una riga, aperta il
+                 dettaglio. Con cento sottoscrizioni l'elenco aperto era
+                 impraticabile sul telefono. */
+              <SchedaRichiesta
+                titolo={sottoscrizione.abbonamento.nome}
+                sottotitolo={`${utente} · ${formattaPrezzo(
+                  sottoscrizione.abbonamento.prezzoCentesimi,
+                  sottoscrizione.abbonamento.valuta,
+                )}/${sottoscrizione.abbonamento.periodo}`}
+                stato={<BadgeStato stato={stato} tipo="abbonamento" />}
+                intestazione={
+                  sottoscrizione.codice ? (
+                    <CodiceCopiabile
+                      codice={sottoscrizione.codice}
+                      className="shrink-0 text-[12px] font-bold tracking-[0.08em] text-[var(--accento)]"
+                    />
+                  ) : null
+                }
+              >
+                <dl className="mono flex flex-col gap-1 text-[13px] text-[var(--testo-tenue)] sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:text-[12px]">
                   <dd className="break-words text-[var(--testo)]">{utente}</dd>
-                  <dd className="hidden sm:block" aria-hidden="true">
-                    ·
-                  </dd>
-                  <dd>
-                    {formattaPrezzo(
-                      sottoscrizione.abbonamento.prezzoCentesimi,
-                      sottoscrizione.abbonamento.valuta,
-                    )}
-                    /{sottoscrizione.abbonamento.periodo}
-                  </dd>
                   <dd className="hidden sm:block" aria-hidden="true">
                     ·
                   </dd>
@@ -237,7 +229,7 @@ export function SezioneSottoscrizioni({
                     </button>
                   </form>
                 </div>
-              </article>
+              </SchedaRichiesta>
             ),
           };
         })}

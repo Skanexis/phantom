@@ -119,16 +119,25 @@ export default async function PannelloAdmin() {
     <div className="flex min-h-full flex-col">
       <Navigazione />
 
-      <main className="colonne relative mx-auto w-full max-w-[1400px] flex-1 px-4 py-10 sm:px-8 sm:py-16">
-        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--bordo)] pb-6">
+      {/* Intestazione compatta su mobile: titolo e riepilogo occupavano
+          quasi una schermata prima di arrivare alle schede, che sono ciò
+          per cui il pannello si apre. */}
+      <main className="colonne relative mx-auto w-full max-w-[1400px] flex-1 px-4 py-5 sm:px-8 sm:py-16">
+        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--bordo)] pb-4 sm:pb-6">
           <div>
             <Etichetta className="text-[var(--accento)]">
               Console · Amministrazione
             </Etichetta>
-            <h1 className="display mt-4 text-[clamp(1.9rem,7vw,4rem)]">
+            <h1 className="display mt-2 text-[clamp(1.6rem,6vw,4rem)] sm:mt-4">
               Pannello
             </h1>
-            <p className="mono mt-3 text-[12px] text-[var(--testo-tenue)]">
+            <p
+              className={`mono mt-2 text-[12px] sm:mt-3 ${
+                daFare > 0
+                  ? "text-[var(--accento)]"
+                  : "text-[var(--testo-tenue)]"
+              }`}
+            >
               {daFare > 0
                 ? `${daFare} ${daFare === 1 ? "voce richiede" : "voci richiedono"} attenzione`
                 : "Tutto in ordine, niente in sospeso"}
@@ -136,15 +145,15 @@ export default async function PannelloAdmin() {
           </div>
           <Link
             href="/"
-            className="mono spinta flex min-h-11 items-center border border-[var(--bordo)] px-4 text-[11px] uppercase tracking-[0.12em]"
+            className="mono spinta flex min-h-11 items-center border border-[var(--bordo)] px-4 text-[11px] tracking-[0.12em] uppercase max-sm:hidden"
           >
             Vedi il sito →
           </Link>
         </div>
 
-        {/* 2 colonne su mobile invece di 5 righe impilate: i numeri restano
-            visibili tutti insieme senza occupare l'intera schermata. */}
-        <div className="grid grid-cols-2 border-b border-l border-[var(--bordo)] sm:grid-cols-4">
+        {/* Su mobile una riga sola di numeri compatti: la griglia 2×2
+            costava mezza schermata prima delle schede. */}
+        <div className="nascondi-barra -mx-4 flex overflow-x-auto border-b border-[var(--bordo)] px-4 sm:mx-0 sm:grid sm:grid-cols-5 sm:border-l sm:px-0">
           {[
             {
               valore: String(richiesteNuove).padStart(2, "0"),
@@ -157,6 +166,11 @@ export default async function PannelloAdmin() {
               acceso: attivazioniInAttesa > 0,
             },
             {
+              valore: String(messaggiDaLeggere).padStart(2, "0"),
+              etichetta: "Messaggi",
+              acceso: messaggiDaLeggere > 0,
+            },
+            {
               valore: String(attivi.length).padStart(2, "0"),
               etichetta: "Abbonati",
             },
@@ -167,16 +181,18 @@ export default async function PannelloAdmin() {
           ].map((dato) => (
             <div
               key={dato.etichetta}
-              className="border-r border-t border-[var(--bordo)] p-4 sm:border-t-0 sm:p-5"
+              className="shrink-0 border-r border-[var(--bordo)] py-3 pr-5 pl-0 first:pl-0 sm:p-5"
             >
               <span
-                className={`display block text-[26px] sm:text-[34px] ${
+                className={`display block text-[20px] sm:text-[34px] ${
                   dato.acceso ? "text-[var(--accento)]" : ""
                 }`}
               >
                 {dato.valore}
               </span>
-              <Etichetta className="mt-1 block">{dato.etichetta}</Etichetta>
+              <Etichetta className="mt-0.5 block sm:mt-1">
+                {dato.etichetta}
+              </Etichetta>
             </div>
           ))}
         </div>

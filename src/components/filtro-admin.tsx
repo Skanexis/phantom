@@ -52,50 +52,56 @@ export function FiltroAdmin({
 
   return (
     <div className="flex flex-col gap-4">
-      <input
-        type="search"
-        value={testo}
-        onChange={(evento) => setTesto(evento.target.value)}
-        placeholder={segnaposto}
-        aria-label={segnaposto}
-        /* text-base sotto sm: iOS ingrandisce la pagina sotto i 16px. */
-        className="mono min-h-11 w-full border border-[var(--bordo)] bg-[var(--sfondo)] px-3.5 py-2.5 text-base outline-none transition-colors placeholder:text-[var(--testo-debole)] focus:border-[var(--accento)] sm:text-[12.5px]"
-      />
+      {/* Ricerca e filtri restano in vista mentre si scorre: arrivati alla
+          ventesima richiesta, tornare in cima per cambiare filtro annullava
+          il vantaggio di averli. L'aggancio parte sotto navigazione (3.5rem)
+          e barra delle schede (3rem). */}
+      <div className="sticky top-[6.5rem] z-30 -mx-4 flex flex-col gap-3 border-b border-[var(--bordo)] bg-[var(--sfondo)] px-4 py-3 sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
+        <input
+          type="search"
+          value={testo}
+          onChange={(evento) => setTesto(evento.target.value)}
+          placeholder={segnaposto}
+          aria-label={segnaposto}
+          /* text-base sotto sm: iOS ingrandisce la pagina sotto i 16px. */
+          className="mono min-h-11 w-full border border-[var(--bordo)] bg-[var(--sfondo)] px-3.5 py-2.5 text-base outline-none transition-colors placeholder:text-[var(--testo-debole)] focus:border-[var(--accento)] sm:text-[12.5px]"
+        />
 
-      <div className="nascondi-barra -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
-        {[{ valore: "tutti", etichetta: "Tutti" }, ...stati].map((voce) => {
-          const selezionato = stato === voce.valore;
-          const quanti =
-            voce.valore === "tutti"
-              ? voci.length
-              : (conteggi[voce.valore] ?? 0);
+        <div className="nascondi-barra -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
+          {[{ valore: "tutti", etichetta: "Tutti" }, ...stati].map((voce) => {
+            const selezionato = stato === voce.valore;
+            const quanti =
+              voce.valore === "tutti"
+                ? voci.length
+                : (conteggi[voce.valore] ?? 0);
 
-          return (
-            <button
-              key={voce.valore}
-              type="button"
-              onClick={() => {
-                vibra();
-                setStato(voce.valore);
-              }}
-              aria-pressed={selezionato}
-              className={`mono flex min-h-10 shrink-0 items-center gap-2 border px-3 text-[11px] uppercase tracking-[0.1em] transition-colors ${
-                selezionato
-                  ? "border-[var(--accento)] bg-[var(--accento)] font-semibold text-[var(--accento-testo)]"
-                  : "border-[var(--bordo)] text-[var(--testo-tenue)] hover:border-[var(--bordo-forte)]"
-              }`}
-            >
-              {voce.etichetta}
-              <span
-                className={
-                  selezionato ? "opacity-70" : "text-[var(--testo-debole)]"
-                }
+            return (
+              <button
+                key={voce.valore}
+                type="button"
+                onClick={() => {
+                  vibra();
+                  setStato(voce.valore);
+                }}
+                aria-pressed={selezionato}
+                className={`mono flex min-h-10 shrink-0 items-center gap-2 border px-3 text-[11px] uppercase tracking-[0.1em] transition-colors ${
+                  selezionato
+                    ? "border-[var(--accento)] bg-[var(--accento)] font-semibold text-[var(--accento-testo)]"
+                    : "border-[var(--bordo)] text-[var(--testo-tenue)] hover:border-[var(--bordo-forte)]"
+                }`}
               >
-                {quanti}
-              </span>
-            </button>
-          );
-        })}
+                {voce.etichetta}
+                <span
+                  className={
+                    selezionato ? "opacity-70" : "text-[var(--testo-debole)]"
+                  }
+                >
+                  {quanti}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {filtrate.length === 0 ? (

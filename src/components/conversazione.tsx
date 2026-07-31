@@ -71,12 +71,19 @@ export function Conversazione({
   richiestaId,
   messaggiIniziali,
   comeAdmin = false,
+  aTuttoSchermo = false,
   invia,
 }: {
   richiestaId: string;
   messaggiIniziali: MessaggioVista[];
   /** Vero nel pannello admin: i messaggi dell'admin appaiono come propri. */
   comeAdmin?: boolean;
+  /**
+   * Dentro un foglio a tutto schermo: l'elenco occupa lo spazio disponibile
+   * e la casella resta ancorata in fondo, invece di stare in una finestrella
+   * con scorrimento proprio dentro la pagina.
+   */
+  aTuttoSchermo?: boolean;
   /** Invio specifico del lato: API dal sito, azione server dall'admin. */
   invia: (testo: string) => Promise<MessaggioVista | null>;
 }) {
@@ -224,11 +231,19 @@ export function Conversazione({
   }
 
   return (
-    <div className="flex flex-col">
+    <div
+      className={
+        aTuttoSchermo ? "flex min-h-0 flex-1 flex-col" : "flex flex-col"
+      }
+    >
       <div
         role="log"
         aria-label="Conversazione"
-        className="nascondi-barra flex max-h-[380px] flex-col gap-2.5 overflow-y-auto border border-[var(--bordo)] p-3 sm:p-4"
+        className={`nascondi-barra flex flex-col gap-2.5 overflow-y-auto p-3 sm:p-4 ${
+          aTuttoSchermo
+            ? "min-h-0 flex-1"
+            : "max-h-[380px] border border-[var(--bordo)]"
+        }`}
       >
         {messaggi.length === 0 ? (
           <p className="mono py-6 text-center text-[12px] text-[var(--testo-tenue)]">
@@ -328,42 +343,79 @@ export function Conversazione({
         <div ref={fondo} />
       </div>
 
-      <form onSubmit={inviaMessaggio} className="mt-3 flex flex-col gap-2">
-        <textarea
-          value={bozza}
-          onChange={(evento) => {
-            setBozza(evento.target.value);
-            if (evento.target.value.trim()) segnalaScrittura();
-          }}
-          onKeyDown={(evento) => {
-            // Invio manda, Maiusc+Invio va a capo: su desktop è l'attesa
-            // di chiunque abbia usato una chat.
-            if (evento.key === "Enter" && !evento.shiftKey) {
-              evento.preventDefault();
-              void inviaMessaggio(evento);
-            }
-          }}
-          rows={2}
-          maxLength={LUNGHEZZA_MASSIMA}
-          placeholder="Scrivi un messaggio…"
-          aria-label="Scrivi un messaggio"
-          /* text-base sotto sm: iOS ingrandisce la pagina sotto i 16px. */
-          className="mono w-full resize-none border border-[var(--bordo)] bg-[var(--sfondo)] px-3.5 py-2.5 text-base leading-[1.6] outline-none transition-colors placeholder:text-[var(--testo-debole)] focus:border-[var(--accento)] sm:text-[12.5px]"
-        />
+      <form
+        onSubmit={inviaMessaggio}
+        className={
+          aTuttoSchermo
+            ? "shrink-0 border-t border-[var(--bordo)] p-3"
+            : "mt-3 flex flex-col gap-2"
+        }
+        // La casella non deve finire sotto la barra di sistema o sotto la
+        // tastiera: lo spazio sicuro va aggiunto solo a tutto schermo.
+        style={
+          aTuttoSchermo
+            ? { paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }
+            : undefined
+        }
+      >
+        {/* A tutto schermo casella e pulsante stanno affiancati, come in
+            qualsiasi chat: impilati sprecherebbero l'altezza che serve ai
+            messaggi quando la tastiera è aperta. */}
+        <div className={aTuttoSchermo ? "flex items-end gap-2" : undefined}>
+          <textarea
+            value={bozza}
+            onChange={(evento) => {
+              setBozza(evento.target.value);
+              if (evento.target.value.trim()) segnalaScrittura();
+            }}
+            onKeyDown={(evento) => {
+              // Invio manda, Maiusc+Invio va a capo: su desktop è l'attesa
+              // di chiunque abbia usato una chat. A tutto schermo, dove si
+              // scrive col pollice, l'invio deve andare a capo.
+              if (
+                evento.key === "Enter" &&
+                !evento.shiftKey &&
+                !aTuttoSchermo
+              ) {
+                evento.preventDefault();
+                void inviaMessaggio(evento);
+              }
+            }}
+            rows={aTuttoSchermo ? 1 : 2}
+            maxLength={LUNGHEZZA_MASSIMA}
+            placeholder="Scrivi un messaggio…"
+            aria-label="Scrivi un messaggio"
+            /* text-base sotto sm: iOS ingrandisce la pagina sotto i 16px. */
+            className="mono w-full resize-none border border-[var(--bordo)] bg-[var(--sfondo)] px-3.5 py-2.5 text-base leading-[1.6] outline-none transition-colors placeholder:text-[var(--testo-debole)] focus:border-[var(--accento)] sm:text-[12.5px]"
+          />
 
-        <div className="flex items-center justify-between gap-3">
-          <span className="mono text-[10px] text-[var(--testo-debole)]">
-            {bozza.length > LUNGHEZZA_MASSIMA - 200 &&
-              `${LUNGHEZZA_MASSIMA - bozza.length} caratteri rimasti`}
-          </span>
-          <button
-            type="submit"
-            disabled={inCorso || bozza.trim().length === 0}
-            className="mono spinta min-h-11 border border-[var(--bordo-pieno)] bg-[var(--bordo-pieno)] px-5 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--testo-inverso)] disabled:opacity-50 sm:text-[11px]"
-          >
-            {inCorso ? "Invio…" : "Invia"}
-          </button>
+          {aTuttoSchermo && (
+            <button
+              type="submit"
+              disabled={inCorso || bozza.trim().length === 0}
+              aria-label="Invia"
+              className="mono spinta flex h-11 w-11 shrink-0 items-center justify-center border border-[var(--bordo-pieno)] bg-[var(--bordo-pieno)] text-[16px] text-[var(--testo-inverso)] disabled:opacity-40"
+            >
+              {inCorso ? "◌" : "→"}
+            </button>
+          )}
         </div>
+
+        {!aTuttoSchermo && (
+          <div className="flex items-center justify-between gap-3">
+            <span className="mono text-[10px] text-[var(--testo-debole)]">
+              {bozza.length > LUNGHEZZA_MASSIMA - 200 &&
+                `${LUNGHEZZA_MASSIMA - bozza.length} caratteri rimasti`}
+            </span>
+            <button
+              type="submit"
+              disabled={inCorso || bozza.trim().length === 0}
+              className="mono spinta min-h-11 border border-[var(--bordo-pieno)] bg-[var(--bordo-pieno)] px-5 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--testo-inverso)] disabled:opacity-50 sm:text-[11px]"
+            >
+              {inCorso ? "Invio…" : "Invia"}
+            </button>
+          </div>
+        )}
       </form>
 
       <AnimatePresence>
