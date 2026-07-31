@@ -62,6 +62,10 @@ async function main() {
     deviceScaleFactor: 1,
     locale: "it-IT",
     timezoneId: "Europe/Rome",
+    // Il tema del sito è scuro salvo preferenza contraria: Playwright
+    // chiede "light" per difetto, ed è il motivo per cui le riprese
+    // uscivano su fondo chiaro.
+    colorScheme: "dark",
     recordVideo: {
       dir: CARTELLA,
       size: { width: LARGHEZZA, height: ALTEZZA },

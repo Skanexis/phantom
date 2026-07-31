@@ -35,6 +35,9 @@ type Blocco = {
   velocitaAngolare: number;
   /** Da 1 a 0 subito dopo il riaggancio: è il lampo della saldatura. */
   saldatura: number;
+  /** Punto da cui è arrivata la riparazione, per tracciare l'arco. */
+  sorgenteX: number;
+  sorgenteY: number;
 };
 
 /** Scintilla effimera sprigionata dal punto di saldatura. */
@@ -43,6 +46,19 @@ type Scintilla = {
   y: number;
   vx: number;
   vy: number;
+  vita: number;
+};
+
+/**
+ * Arco di saldatura: il lampo che collega la testa di riparazione al
+ * blocco appena rimesso. Dura pochi fotogrammi ed è ciò che rende
+ * leggibile *da dove* arriva la riparazione.
+ */
+type Arco = {
+  daX: number;
+  daY: number;
+  aX: number;
+  aY: number;
   vita: number;
 };
 
@@ -86,6 +102,7 @@ export function MarchioCostruito() {
     let blocchi: Blocco[] = [];
     let scintille: Scintilla[] = [];
     let riparazioni: Riparazione[] = [];
+    let archi: Arco[] = [];
     let larghezza = 0;
     let altezza = 0;
     let lato = 4;
@@ -98,6 +115,10 @@ export function MarchioCostruito() {
     const stile = getComputedStyle(document.documentElement);
     const accento = stile.getPropertyValue("--accento").trim() || "#d6ff3f";
     const testo = stile.getPropertyValue("--testo").trim() || "#f5f5f0";
+    // Punta della saldatura: più chiara dell'accento in entrambi i temi,
+    // così il picco di calore si distingue dal resto senza introdurre un
+    // colore estraneo alla tavolozza.
+    const incandescente = "#ffffff";
 
     /**
      * Ricava le posizioni dei blocchi disegnando il testo fuori schermo e
@@ -180,6 +201,8 @@ export function MarchioCostruito() {
             angolo: 0,
             velocitaAngolare: 0,
             saldatura: 0,
+            sorgenteX: 0,
+            sorgenteY: 0,
           });
         }
       }
@@ -187,6 +210,7 @@ export function MarchioCostruito() {
       blocchi = nuovi;
       scintille = [];
       riparazioni = [];
+      archi = [];
       inizioFase = performance.now();
       prossimaRottura = inizioFase + 3800;
     }
@@ -330,9 +354,25 @@ export function MarchioCostruito() {
           if (dx * dx + dy * dy > onda.raggio * onda.raggio) continue;
 
           // Riagganciato: da qui torna a casa con la molla e smette di
-          // ruotare, così l'atterraggio è netto.
+          // ruotare, così l'atterraggio è netto. La sorgente resta in
+          // memoria per tracciare l'arco al momento dell'incastro.
           blocco.staccato = false;
           blocco.velocitaAngolare = 0;
+          blocco.sorgenteX = onda.x;
+          blocco.sorgenteY = onda.y;
+        }
+
+        // Scintille lungo il fronte dell'onda: la testa di saldatura
+        // lavora mentre avanza, non solo quando incastra un blocco.
+        if (onda.raggio > 2 && scintille.length < 200) {
+          const angolo = Math.random() * Math.PI * 2;
+          scintille.push({
+            x: onda.x + Math.cos(angolo) * onda.raggio,
+            y: onda.y + Math.sin(angolo) * onda.raggio,
+            vx: Math.cos(angolo) * 0.8,
+            vy: Math.sin(angolo) * 0.8 - 0.3,
+            vita: 0.7,
+          });
         }
 
         if (onda.raggio > onda.raggioMassimo) riparazioni.splice(i, 1);
@@ -370,11 +410,41 @@ export function MarchioCostruito() {
       for (const onda of riparazioni) {
         const forza = 1 - onda.raggio / onda.raggioMassimo;
         if (forza <= 0) continue;
+
+        // Anello a segmenti anziché continuo: una circonferenza piena
+        // sembra un'onda sonora, i tratti leggono come uno strumento che
+        // percorre il bordo del guasto.
+        const segmenti = 20;
+        const rotazione = (ora / 420) % (Math.PI * 2);
         contesto!.strokeStyle = accento;
-        contesto!.globalAlpha = Math.max(0, forza) * 0.5;
+        contesto!.lineWidth = 1.4;
+        contesto!.globalAlpha = Math.max(0, forza) * 0.65;
+
+        for (let s = 0; s < segmenti; s += 1) {
+          const da = rotazione + (s / segmenti) * Math.PI * 2;
+          contesto!.beginPath();
+          contesto!.arc(onda.x, onda.y, onda.raggio, da, da + 0.14);
+          contesto!.stroke();
+        }
+        contesto!.globalAlpha = 1;
+      }
+
+      // Archi di saldatura: tratto sottile e brevissimo dalla testa al
+      // blocco appena incastrato.
+      for (let i = archi.length - 1; i >= 0; i -= 1) {
+        const arco = archi[i];
+        arco.vita -= 0.14;
+        if (arco.vita <= 0) {
+          archi.splice(i, 1);
+          continue;
+        }
+
+        contesto!.strokeStyle = incandescente;
+        contesto!.globalAlpha = arco.vita * 0.75;
         contesto!.lineWidth = 1;
         contesto!.beginPath();
-        contesto!.arc(onda.x, onda.y, onda.raggio, 0, Math.PI * 2);
+        contesto!.moveTo(arco.daX, arco.daY);
+        contesto!.lineTo(arco.aX, arco.aY);
         contesto!.stroke();
         contesto!.globalAlpha = 1;
       }
@@ -411,6 +481,18 @@ export function MarchioCostruito() {
             if (velocita > 0.5) {
               blocco.saldatura = 1;
               accendiScintille(blocco.destinazioneX, blocco.destinazioneY);
+
+              // L'arco parte dalla testa di riparazione e arriva al blocco:
+              // rende visibile la provenienza dell'intervento.
+              if (blocco.sorgenteX || blocco.sorgenteY) {
+                archi.push({
+                  daX: blocco.sorgenteX,
+                  daY: blocco.sorgenteY,
+                  aX: blocco.destinazioneX + lato / 2,
+                  aY: blocco.destinazioneY + lato / 2,
+                  vita: 1,
+                });
+              }
             }
           }
         }
@@ -419,9 +501,17 @@ export function MarchioCostruito() {
           blocco.saldatura = Math.max(0, blocco.saldatura - 0.045);
         }
 
+        // Raffreddamento della saldatura: bianco incandescente, poi
+        // accento, poi il colore normale. È la sequenza che rende il lampo
+        // leggibile come metallo che si raffredda invece di un semplice
+        // cambio di tinta.
         const inMovimento = blocco.staccato || distanzaDaCasa > 1.5;
         contesto!.fillStyle =
-          blocco.saldatura > 0.02 || inMovimento ? accento : testo;
+          blocco.saldatura > 0.62
+            ? incandescente
+            : blocco.saldatura > 0.02 || inMovimento
+              ? accento
+              : testo;
 
         // La rotazione costa un salvataggio di contesto per blocco: la si
         // paga solo sui frammenti in volo, che sono una minoranza.
