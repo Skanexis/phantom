@@ -50,11 +50,14 @@ function Scadenza({ scadeIl }: { scadeIl: Date | null }) {
 export function SezioneSottoscrizioni({
   sottoscrizioni,
   piani,
+  puoGestire = true,
 }: {
   sottoscrizioni: SottoscrizioneCompleta[];
   piani: Abbonamento[];
+  /** SUPPORTO vede e risponde, ma non assegna né cambia stato. */
+  puoGestire?: boolean;
 }) {
-  const assegnazione = (
+  const assegnazione = puoGestire && (
     <BloccoNuovo etichetta="Assegna un piano a un utente">
       <form action={assegnaAbbonamento} className="flex flex-col gap-4">
         <Campo
@@ -173,62 +176,68 @@ export function SezioneSottoscrizioni({
                   </p>
                 )}
 
-                <div className="mt-4 flex flex-col gap-3">
-                  <form
-                    action={aggiornaStatoSottoscrizione}
-                    className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-end"
-                  >
-                    <input type="hidden" name="id" value={sottoscrizione.id} />
-                    <select
-                      name="stato"
-                      defaultValue={sottoscrizione.stato}
-                      aria-label="Stato della sottoscrizione"
-                      className={`${classiSelettore} sm:w-auto`}
+                {puoGestire ? (
+                  <div className="mt-4 flex flex-col gap-3">
+                    <form
+                      action={aggiornaStatoSottoscrizione}
+                      className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-end"
                     >
-                      {Object.entries(etichetteStatoAbbonamento).map(
-                        ([valore, etichetta]) => (
-                          <option
-                            key={valore}
-                            value={valore}
-                            className="bg-[var(--sfondo)]"
-                          >
-                            {etichetta}
-                          </option>
-                        ),
-                      )}
-                    </select>
-                    <label className="flex flex-col gap-1.5 sm:w-44">
-                      <span className="mono text-[10px] uppercase tracking-[0.12em] text-[var(--testo-debole)]">
-                        Scadenza
-                      </span>
-                      <input
-                        type="date"
-                        name="scadeIl"
-                        defaultValue={
-                          sottoscrizione.scadeIl
-                            ? sottoscrizione.scadeIl.toISOString().slice(0, 10)
-                            : ""
-                        }
-                        aria-label="Data di scadenza"
-                        className={classiSelettore}
-                      />
-                    </label>
-                    <BottoneSalva testo="Aggiorna" />
-                  </form>
+                      <input type="hidden" name="id" value={sottoscrizione.id} />
+                      <select
+                        name="stato"
+                        defaultValue={sottoscrizione.stato}
+                        aria-label="Stato della sottoscrizione"
+                        className={`${classiSelettore} sm:w-auto`}
+                      >
+                        {Object.entries(etichetteStatoAbbonamento).map(
+                          ([valore, etichetta]) => (
+                            <option
+                              key={valore}
+                              value={valore}
+                              className="bg-[var(--sfondo)]"
+                            >
+                              {etichetta}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                      <label className="flex flex-col gap-1.5 sm:w-44">
+                        <span className="mono text-[10px] uppercase tracking-[0.12em] text-[var(--testo-debole)]">
+                          Scadenza
+                        </span>
+                        <input
+                          type="date"
+                          name="scadeIl"
+                          defaultValue={
+                            sottoscrizione.scadeIl
+                              ? sottoscrizione.scadeIl.toISOString().slice(0, 10)
+                              : ""
+                          }
+                          aria-label="Data di scadenza"
+                          className={classiSelettore}
+                        />
+                      </label>
+                      <BottoneSalva testo="Aggiorna" />
+                    </form>
 
-                  <form
-                    action={prorogaSottoscrizione}
-                    className="border-t border-dashed border-[var(--bordo)] pt-3"
-                  >
-                    <input type="hidden" name="id" value={sottoscrizione.id} />
-                    <button
-                      type="submit"
-                      className="mono spinta min-h-11 w-full border border-[var(--accento)] px-4 py-2.5 text-[12px] uppercase tracking-[0.12em] text-[var(--accento)] sm:w-auto sm:text-[11px]"
+                    <form
+                      action={prorogaSottoscrizione}
+                      className="border-t border-dashed border-[var(--bordo)] pt-3"
                     >
-                      + Rinnova di un ciclo
-                    </button>
-                  </form>
-                </div>
+                      <input type="hidden" name="id" value={sottoscrizione.id} />
+                      <button
+                        type="submit"
+                        className="mono spinta min-h-11 w-full border border-[var(--accento)] px-4 py-2.5 text-[12px] uppercase tracking-[0.12em] text-[var(--accento)] sm:w-auto sm:text-[11px]"
+                      >
+                        + Rinnova di un ciclo
+                      </button>
+                    </form>
+                  </div>
+                ) : (
+                  <p className="mono mt-4 border-t border-dashed border-[var(--bordo)] pt-3 text-[11px] leading-[1.6] text-[var(--testo-debole)]">
+                    Stato e rinnovo sono gestiti dagli amministratori.
+                  </p>
+                )}
               </SchedaRichiesta>
             ),
           };

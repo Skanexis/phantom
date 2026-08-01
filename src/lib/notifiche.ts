@@ -2,6 +2,17 @@ import { prisma } from "@/lib/prisma";
 import { inviaMessaggio } from "@/lib/telegram-bot";
 import { CANALE_ADMIN, pubblica } from "@/lib/eventi";
 
+/** Oltre questa soglia le notifiche non compaiono più nell'interfaccia:
+ * restano nel database (nessuna cancellazione automatica), condivisa fra
+ * l'API di paginazione e il primo caricamento lato server. */
+export const GIORNI_CONSERVAZIONE_NOTIFICHE = 45;
+
+export function sogliaConservazioneNotifiche() {
+  return new Date(
+    Date.now() - GIORNI_CONSERVAZIONE_NOTIFICHE * 24 * 60 * 60 * 1000,
+  );
+}
+
 /**
  * Crea la notifica in-app e prova a inoltrarla su Telegram.
  * L'invio Telegram non deve mai far fallire l'operazione chiamante.

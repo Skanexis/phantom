@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useScroll, useSpring } from "framer-motion";
 import { useTelegram, vibra } from "@/components/telegram-provider";
-import { useFlusso } from "@/components/flusso-provider";
 import { InterruttoreTema } from "@/components/interruttore-tema";
+import { NotificheNav } from "@/components/notifiche-nav";
 
 const voci = [
   { href: "/#servizi", etichetta: "Servizi", codice: "02" },
@@ -18,9 +18,6 @@ const voci = [
 export function Navigazione() {
   const [menuAperto, setMenuAperto] = useState(false);
   const { utente } = useTelegram();
-  // Il conteggio arriva dal flusso SSE: si aggiorna da solo, senza
-  // ricaricare la pagina né interrogare il server a intervalli.
-  const { nonLette } = useFlusso();
 
   const { scrollYProgress } = useScroll();
   const progresso = useSpring(scrollYProgress, {
@@ -75,29 +72,16 @@ export function Navigazione() {
             <InterruttoreTema />
           </div>
 
-          <Link
-            href="/area-personale"
-            className="relative mono flex items-center border-l border-[var(--bordo)] px-4 text-[12px] uppercase tracking-[0.1em] transition-colors hover:bg-[var(--accento)] hover:text-[var(--accento-testo)]"
-          >
-            {utente ? "Account" : "Accedi"}
-            <AnimatePresence>
-              {nonLette > 0 && (
-                <motion.span
-                  // key sul conteggio: cambiando numero l'elemento viene
-                  // rimontato e l'animazione riparte, segnalando l'arrivo.
-                  key={nonLette}
-                  initial={{ scale: 0 }}
-                  animate={{ scale: [0, 1.35, 1] }}
-                  exit={{ scale: 0 }}
-                  transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-                  aria-label={`${nonLette} notifiche non lette`}
-                  className="mono absolute right-1.5 top-2 flex h-4 min-w-4 items-center justify-center bg-[var(--allarme)] px-1 text-[9px] font-bold text-white"
-                >
-                  {nonLette > 9 ? "9+" : nonLette}
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </Link>
+          {utente ? (
+            <NotificheNav />
+          ) : (
+            <Link
+              href="/area-personale"
+              className="mono flex items-center border-l border-[var(--bordo)] px-4 text-[12px] uppercase tracking-[0.1em] transition-colors hover:bg-[var(--accento)] hover:text-[var(--accento-testo)]"
+            >
+              Accedi
+            </Link>
+          )}
 
           <Link
             href="/richiesta"
@@ -138,12 +122,31 @@ export function Navigazione() {
 
       <AnimatePresence>
         {menuAperto && (
+          // Sfondo del resto della pagina: senza, il menu è un semplice
+          // pannello che spinge in basso il contenuto sottostante, dello
+          // stesso nero — sembra altro contenuto della pagina, non un
+          // livello sopra di essa. Chiudibile anche toccandolo.
+          <motion.button
+            type="button"
+            aria-label="Chiudi menu"
+            onClick={() => setMenuAperto(false)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-40 bg-black/70 md:hidden"
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {menuAperto && (
           <motion.div
             initial={{ height: 0 }}
             animate={{ height: "auto" }}
             exit={{ height: 0 }}
             transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-            className="overflow-hidden border-t border-[var(--bordo)] bg-[var(--sfondo)] md:hidden"
+            className="relative z-50 overflow-hidden border-t border-[var(--bordo)] bg-[var(--sfondo)] md:hidden"
           >
             {voci.map((voce) => (
               <Link

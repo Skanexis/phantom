@@ -13,6 +13,7 @@
     "schermate": "tsx scripts/schermate.ts",
     "video": "tsx scripts/video-attesa.ts",
     "promuovi-admin": "tsx scripts/promuovi-admin.ts",
+    "imposta-ruolo": "tsx scripts/imposta-ruolo.ts",
     "verifica-env": "tsx scripts/verifica-env.ts"
   },
   "dependencies": {

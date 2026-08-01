@@ -1,13 +1,21 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { richiediAdmin } from "@/lib/sessione";
+import { richiediStaff } from "@/lib/sessione";
+import {
+  puoGestireOperazioni,
+  puoModificareContenuti,
+  puoVedereStatistiche,
+} from "@/lib/permessi";
 import { formattaPrezzo } from "@/lib/contenuti";
 import { statoEffettivo, valoreMensileCentesimi } from "@/lib/abbonamenti";
+import { calcolaCommissione } from "@/lib/scambio";
 import { Navigazione } from "@/components/navigazione";
 import { PiedePagina } from "@/components/piede-pagina";
 import { SchedeAdmin } from "@/components/schede-admin";
+import { BadgeRuolo } from "@/components/badge-ruolo";
 import { Etichetta } from "@/components/ui";
 import { SezioneRichieste } from "./sezioni/richieste";
+import { SezioneExchange } from "./sezioni/exchange";
 import { SezioneSottoscrizioni } from "./sezioni/sottoscrizioni";
 import { SezioneAbbonamenti } from "./sezioni/abbonamenti";
 import {
@@ -26,7 +34,7 @@ export const metadata = {
 };
 
 export default async function PannelloAdmin() {
-  const admin = await richiediAdmin();
+  const admin = await richiediStaff();
 
   if (!admin) {
     return (
@@ -39,7 +47,7 @@ export default async function PannelloAdmin() {
             </Etichetta>
             <h1 className="display mt-5 text-[32px]">Area riservata</h1>
             <p className="mono mt-4 text-[12.5px] leading-[1.7] text-[var(--testo-tenue)]">
-              Questa sezione è accessibile solo agli amministratori.
+              Questa sezione è accessibile solo allo staff.
             </p>
             <Link
               href="/"
@@ -54,9 +62,17 @@ export default async function PannelloAdmin() {
     );
   }
 
+  // Tre livelli di accesso: il contenuto del sito solo a DEVELOPER, le
+  // operazioni (stati, proroghe, assegnazioni) ad ADMIN e DEVELOPER, le
+  // cifre di incasso allo stesso gruppo — SUPPORTO vede e risponde soltanto.
+  const gestisceContenuti = puoModificareContenuti(admin.ruolo);
+  const gestisceOperazioni = puoGestireOperazioni(admin.ruolo);
+  const vedeStatistiche = puoVedereStatistiche(admin.ruolo);
+
   const [
     abbonamenti,
     richieste,
+    richiesteExchange,
     sottoscrizioni,
     contenuti,
     servizi,
@@ -73,6 +89,13 @@ export default async function PannelloAdmin() {
       orderBy: { creatoIl: "desc" },
       include: { utente: true, messaggi: { orderBy: { creatoIl: "asc" } } },
       take: 50,
+    }),
+    // Senza limite e a parte: le statistiche di incasso devono contare ogni
+    // scambio da sempre, non solo gli ultimi 50 movimenti del pannello.
+    prisma.richiesta.findMany({
+      where: { ambito: "EXCHANGE" },
+      orderBy: { creatoIl: "desc" },
+      include: { utente: true, messaggi: { orderBy: { creatoIl: "asc" } } },
     }),
     prisma.abbonamentoUtente.findMany({
       orderBy: { creatoIl: "desc" },
@@ -115,8 +138,20 @@ export default async function PannelloAdmin() {
     {},
   );
 
+  const exchangeNuove = richiesteExchange.filter(
+    (r) => r.stato === "NUOVA",
+  ).length;
+  const commissioneExchangeCentesimi = richiesteExchange
+    .filter((r) => r.stato === "COMPLETATA")
+    .reduce(
+      (totale, r) =>
+        totale + calcolaCommissione(r.importoCentesimi ?? 0).commissioneCentesimi,
+      0,
+    );
+
   // Quel che richiede un intervento, in evidenza sopra tutto il resto.
-  const daFare = richiesteNuove + attivazioniInAttesa + messaggiDaLeggere;
+  const daFare =
+    richiesteNuove + attivazioniInAttesa + messaggiDaLeggere + exchangeNuove;
 
   return (
     <div className="flex min-h-full flex-col">
@@ -131,9 +166,12 @@ export default async function PannelloAdmin() {
             <Etichetta className="text-[var(--accento)]">
               Console · Amministrazione
             </Etichetta>
-            <h1 className="display mt-2 text-[clamp(1.6rem,6vw,4rem)] sm:mt-4">
-              Pannello
-            </h1>
+            <div className="mt-2 flex flex-wrap items-center gap-3 sm:mt-4">
+              <h1 className="display text-[clamp(1.6rem,6vw,4rem)]">
+                Pannello
+              </h1>
+              <BadgeRuolo ruolo={admin.ruolo} />
+            </div>
             <p
               className={`mono mt-2 text-[12px] sm:mt-3 ${
                 daFare > 0
@@ -155,8 +193,14 @@ export default async function PannelloAdmin() {
         </div>
 
         {/* Su mobile una riga sola di numeri compatti: la griglia 2×2
-            costava mezza schermata prima delle schede. */}
-        <div className="nascondi-barra -mx-4 flex overflow-x-auto border-b border-[var(--bordo)] px-4 sm:mx-0 sm:grid sm:grid-cols-5 sm:border-l sm:px-0">
+            costava mezza schermata prima delle schede. Le cifre di incasso
+            compaiono solo per chi vede le statistiche: il supporto lavora
+            sulle code, non sui guadagni. */}
+        <div
+          className={`nascondi-barra -mx-4 flex overflow-x-auto border-b border-[var(--bordo)] px-4 sm:mx-0 sm:grid sm:border-l sm:px-0 ${
+            vedeStatistiche ? "sm:grid-cols-7" : "sm:grid-cols-5"
+          }`}
+        >
           {[
             {
               valore: String(richiesteNuove).padStart(2, "0"),
@@ -174,13 +218,26 @@ export default async function PannelloAdmin() {
               acceso: messaggiDaLeggere > 0,
             },
             {
+              valore: String(exchangeNuove).padStart(2, "0"),
+              etichetta: "Exchange",
+              acceso: exchangeNuove > 0,
+            },
+            {
               valore: String(attivi.length).padStart(2, "0"),
               etichetta: "Abbonati",
             },
-            {
-              valore: formattaPrezzo(ricorrenteCentesimi, "EUR"),
-              etichetta: "Al mese",
-            },
+            ...(vedeStatistiche
+              ? [
+                  {
+                    valore: formattaPrezzo(ricorrenteCentesimi, "EUR"),
+                    etichetta: "Al mese",
+                  },
+                  {
+                    valore: formattaPrezzo(commissioneExchangeCentesimi, "EUR"),
+                    etichetta: "Commissioni",
+                  },
+                ]
+              : []),
           ].map((dato) => (
             <div
               key={dato.etichetta}
@@ -205,7 +262,7 @@ export default async function PannelloAdmin() {
             {
               id: "richieste",
               etichetta: "Richieste",
-              // Nuove più risposte non lette: entrambe aspettano l'admin.
+              // Nuove più risposte non lette: entrambe aspettano lo staff.
               contatore: richiesteNuove + messaggiDaLeggere,
             },
             {
@@ -213,35 +270,66 @@ export default async function PannelloAdmin() {
               etichetta: "Sottoscrizioni",
               contatore: attivazioniInAttesa,
             },
-            { id: "abbonamenti", etichetta: "Piani" },
-            { id: "servizi", etichetta: "Servizi" },
-            { id: "vantaggi", etichetta: "Vantaggi" },
-            { id: "automazioni", etichetta: "Automazioni" },
-            { id: "faq", etichetta: "FAQ" },
-            { id: "contatti", etichetta: "Contatti" },
-            { id: "testi", etichetta: "Testi" },
+            {
+              id: "exchange",
+              etichetta: "Exchange",
+              contatore: exchangeNuove,
+            },
+            // Il contenuto del sito (piani, testi, vetrina) resta riservato
+            // a chi ha ruolo DEVELOPER: ADMIN e SUPPORTO non vedono queste
+            // schede, non solo non possono salvarle.
+            ...(gestisceContenuti
+              ? [
+                  { id: "abbonamenti", etichetta: "Piani" },
+                  { id: "servizi", etichetta: "Servizi" },
+                  { id: "vantaggi", etichetta: "Vantaggi" },
+                  { id: "automazioni", etichetta: "Automazioni" },
+                  { id: "faq", etichetta: "FAQ" },
+                  { id: "contatti", etichetta: "Contatti" },
+                  { id: "testi", etichetta: "Testi" },
+                ]
+              : []),
           ]}
         >
           {{
-            richieste: <SezioneRichieste richieste={richieste} />,
+            richieste: (
+              <SezioneRichieste
+                richieste={richieste}
+                puoGestire={gestisceOperazioni}
+              />
+            ),
+            exchange: (
+              <SezioneExchange
+                richieste={richiesteExchange}
+                puoGestire={gestisceOperazioni}
+                puoVedereStatistiche={vedeStatistiche}
+              />
+            ),
             sottoscrizioni: (
               <SezioneSottoscrizioni
                 sottoscrizioni={sottoscrizioni}
                 piani={abbonamenti}
+                puoGestire={gestisceOperazioni}
               />
             ),
-            abbonamenti: (
-              <SezioneAbbonamenti
-                piani={abbonamenti}
-                sottoscrizioniPerPiano={sottoscrizioniPerPiano}
-              />
-            ),
-            servizi: <SezioneServizi servizi={servizi} />,
-            vantaggi: <SezioneVantaggi vantaggi={vantaggi} />,
-            automazioni: <SezioneAutomazioni automazioni={automazioni} />,
-            faq: <SezioneFaq faq={faq} />,
-            contatti: <SezioneContatti contatti={contatti} />,
-            testi: <SezioneTesti contenuti={contenuti} />,
+            ...(gestisceContenuti
+              ? {
+                  abbonamenti: (
+                    <SezioneAbbonamenti
+                      piani={abbonamenti}
+                      sottoscrizioniPerPiano={sottoscrizioniPerPiano}
+                    />
+                  ),
+                  servizi: <SezioneServizi servizi={servizi} />,
+                  vantaggi: <SezioneVantaggi vantaggi={vantaggi} />,
+                  automazioni: (
+                    <SezioneAutomazioni automazioni={automazioni} />
+                  ),
+                  faq: <SezioneFaq faq={faq} />,
+                  contatti: <SezioneContatti contatti={contatti} />,
+                  testi: <SezioneTesti contenuti={contenuti} />,
+                }
+              : {}),
           }}
         </SchedeAdmin>
       </main>

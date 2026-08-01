@@ -22,13 +22,6 @@ const ambiti = [
     icona: "app",
     codice: "02",
   },
-  {
-    valore: "AUTOMAZIONE",
-    etichetta: "Automazione",
-    descrizione: "Processi, integrazioni, bot",
-    icona: "bolt",
-    codice: "03",
-  },
 ] as const;
 
 type Ambito = (typeof ambiti)[number]["valore"];
@@ -140,7 +133,7 @@ export function FormRichiesta({ ambitoIniziale }: { ambitoIniziale?: string }) {
     <form onSubmit={gestisciInvio} className="flex flex-col">
       <fieldset>
         <legend className="etichetta">Ambito · Seleziona</legend>
-        <div className="mt-4 grid border-l border-t border-[var(--bordo)] sm:grid-cols-3">
+        <div className="mt-4 grid border-l border-t border-[var(--bordo)] sm:grid-cols-2">
           {ambiti.map((voce) => {
             const attivo = ambito === voce.valore;
             const IconaAmbito = Icone[voce.icona];

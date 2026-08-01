@@ -17,9 +17,9 @@ import { caricaDatiHomepage, formattaPrezzo, testo } from "@/lib/contenuti";
 export const dynamic = "force-dynamic";
 
 const ambitiSuMisura = [
-  { etichetta: "Sito web", ambito: "SITO_WEB", codice: "01" },
-  { etichetta: "Applicazione", ambito: "APPLICAZIONE", codice: "02" },
-  { etichetta: "Automazione", ambito: "AUTOMAZIONE", codice: "03" },
+  { etichetta: "Sito web", href: "/richiesta?ambito=SITO_WEB", codice: "01" },
+  { etichetta: "Applicazione", href: "/richiesta?ambito=APPLICAZIONE", codice: "02" },
+  { etichetta: "Exchange", href: "/exchange", codice: "03" },
 ];
 
 export default async function Home() {
@@ -241,8 +241,8 @@ export default async function Home() {
               <div className="grid sm:grid-cols-3">
                 {ambitiSuMisura.map((voce, indice) => (
                   <Link
-                    key={voce.ambito}
-                    href={`/richiesta?ambito=${voce.ambito}`}
+                    key={voce.href}
+                    href={voce.href}
                     className={`group flex items-center justify-between p-6 transition-colors hover:bg-[var(--accento)] sm:p-7 ${
                       indice < ambitiSuMisura.length - 1
                         ? "border-b border-[var(--bordo)] sm:border-b-0 sm:border-r"

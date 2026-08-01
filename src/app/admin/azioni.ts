@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { richiediAdmin } from "@/lib/sessione";
+import {
+  richiediOperatore,
+  richiediSviluppatore,
+  richiediStaff,
+} from "@/lib/sessione";
 import {
   etichetteAmbito,
   etichetteStato,
@@ -10,6 +14,7 @@ import {
 } from "@/lib/telegram-bot";
 import { escapeHtml, notificaUtente } from "@/lib/notifiche";
 import { dataBreve, scadenzaDaPeriodo } from "@/lib/abbonamenti";
+import { linkRichiesta } from "@/lib/richieste";
 import { LUNGHEZZA_MASSIMA, inviaMessaggioAdmin } from "@/lib/messaggi";
 import { PREFISSO_ABBONAMENTO, codiceUnico } from "@/lib/codici";
 import type {
@@ -33,11 +38,28 @@ const statiAbbonamento = [
   "ANNULLATO",
 ] as const;
 
-/** Ogni azione passa da qui: nessuna scrittura senza ruolo ADMIN. */
-async function assicuraAdmin() {
-  const admin = await richiediAdmin();
-  if (!admin) throw new Error("Accesso negato.");
-  return admin;
+/**
+ * Tre porte, tre livelli di accesso:
+ * - contenuto del sito (prezzi, piani, testi…) solo a DEVELOPER;
+ * - operazioni su richieste/sottoscrizioni ad ADMIN e DEVELOPER;
+ * - messaggistica al cliente aperta a tutto lo staff, incluso SUPPORTO.
+ */
+async function assicuraSviluppatore() {
+  const utente = await richiediSviluppatore();
+  if (!utente) throw new Error("Accesso negato.");
+  return utente;
+}
+
+async function assicuraOperatore() {
+  const utente = await richiediOperatore();
+  if (!utente) throw new Error("Accesso negato.");
+  return utente;
+}
+
+async function assicuraStaff() {
+  const utente = await richiediStaff();
+  if (!utente) throw new Error("Accesso negato.");
+  return utente;
 }
 
 function stringa(dati: FormData, chiave: string) {
@@ -70,7 +92,7 @@ function slugifica(testo: string) {
 /* ---------------------------------- Abbonamenti --------------------------------- */
 
 export async function aggiornaAbbonamento(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
 
   const id = stringa(dati, "id");
   const prezzoEuro = numero(dati, "prezzo", -1);
@@ -94,7 +116,7 @@ export async function aggiornaAbbonamento(dati: FormData) {
 }
 
 export async function creaAbbonamento(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
 
   const nome = stringa(dati, "nome");
   if (!nome) return;
@@ -126,7 +148,7 @@ export async function creaAbbonamento(dati: FormData) {
 }
 
 export async function eliminaAbbonamento(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
   const id = stringa(dati, "id");
   if (!id) return;
 
@@ -149,7 +171,7 @@ export async function eliminaAbbonamento(dati: FormData) {
 }
 
 export async function aggiungiFunzionalita(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
 
   const abbonamentoId = stringa(dati, "abbonamentoId");
   const testo = stringa(dati, "testo");
@@ -168,7 +190,7 @@ export async function aggiungiFunzionalita(dati: FormData) {
 }
 
 export async function eliminaFunzionalita(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
   const id = stringa(dati, "id");
   if (!id) return;
   await prisma.funzionalitaAbbonamento.delete({ where: { id } });
@@ -178,7 +200,7 @@ export async function eliminaFunzionalita(dati: FormData) {
 /* ------------------------------ Sottoscrizioni utenti ----------------------------- */
 
 export async function aggiornaStatoSottoscrizione(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraOperatore();
 
   const id = stringa(dati, "id");
   const stato = stringa(dati, "stato") as StatoAbbonamentoUtente;
@@ -241,7 +263,7 @@ export async function aggiornaStatoSottoscrizione(dati: FormData) {
     testo: `Il piano ${sottoscrizione.abbonamento.nome} è ora: ${etichetteStatoAbbonamento[stato]}.${
       stato === "ATTIVO" && scadenza ? ` Rinnovo il ${scadenza}.` : ""
     }`,
-    url: "/area-personale",
+    url: "/area-personale?scheda=abbonamento",
     messaggioTelegram: [
       `<b>Aggiornamento abbonamento</b>${sottoscrizione.codice ? ` · <code>${escapeHtml(sottoscrizione.codice)}</code>` : ""}`,
       "",
@@ -259,7 +281,7 @@ export async function aggiornaStatoSottoscrizione(dati: FormData) {
 
 /** Proroga rapida: sposta la scadenza in avanti di un ciclo del piano. */
 export async function prorogaSottoscrizione(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraOperatore();
 
   const id = stringa(dati, "id");
   if (!id) return;
@@ -289,7 +311,7 @@ export async function prorogaSottoscrizione(dati: FormData) {
     telegramId: sottoscrizione.utente.telegramId,
     titolo: "Abbonamento rinnovato",
     testo: `Il piano ${sottoscrizione.abbonamento.nome} è rinnovato fino al ${dataBreve(nuova)}.`,
-    url: "/area-personale",
+    url: "/area-personale?scheda=abbonamento",
     messaggioTelegram: `<b>Abbonamento rinnovato</b>\n\nPiano: <b>${escapeHtml(sottoscrizione.abbonamento.nome)}</b>\nValido fino al: <b>${escapeHtml(dataBreve(nuova) ?? "")}</b>`,
   });
 
@@ -299,7 +321,7 @@ export async function prorogaSottoscrizione(dati: FormData) {
 
 /** Assegnazione diretta di un piano a un utente, senza richiesta dal sito. */
 export async function assegnaAbbonamento(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraOperatore();
 
   const abbonamentoId = stringa(dati, "abbonamentoId");
   const riferimento = stringa(dati, "utente");
@@ -354,7 +376,7 @@ export async function assegnaAbbonamento(dati: FormData) {
     telegramId: utente.telegramId,
     titolo: `Abbonamento ${codice} attivato`,
     testo: `Il piano ${piano.nome} è attivo fino al ${dataBreve(scadeIl)}.`,
-    url: "/area-personale",
+    url: "/area-personale?scheda=abbonamento",
     messaggioTelegram: [
       `<b>Abbonamento attivato</b> · <code>${escapeHtml(codice)}</code>`,
       "",
@@ -370,7 +392,7 @@ export async function assegnaAbbonamento(dati: FormData) {
 /* --------------------------------- Richieste -------------------------------- */
 
 export async function aggiornaStatoRichiesta(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraOperatore();
 
   const id = stringa(dati, "id");
   const stato = stringa(dati, "stato") as StatoRichiesta;
@@ -402,7 +424,9 @@ export async function aggiornaStatoRichiesta(dati: FormData) {
       testo: annullata
         ? `La richiesta ${richiesta.codice ?? ""} (${ambito}) è stata annullata e non compare più fra le tue richieste.${nota ? ` Motivo: ${nota}` : ""}`
         : `Lo stato della tua richiesta è ora: ${etichetteStato[stato]}.${nota ? ` Nota: ${nota}` : ""}`,
-      url: "/area-personale",
+      url: annullata
+        ? "/area-personale?scheda=richieste"
+        : linkRichiesta(richiesta.codice),
       messaggioTelegram: [
         annullata
           ? `<b>Richiesta annullata</b>${richiesta.codice ? ` · <code>${escapeHtml(richiesta.codice)}</code>` : ""}`
@@ -438,7 +462,7 @@ export async function inviaMessaggioAlCliente(
   testo: string,
   soloSulSito = false,
 ) {
-  await assicuraAdmin();
+  await assicuraStaff();
 
   const pulito = testo.trim();
   if (!richiestaId || !pulito) return null;
@@ -462,7 +486,7 @@ export async function inviaMessaggioAlCliente(
 }
 
 export async function eliminaRichiesta(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraOperatore();
   const id = stringa(dati, "id");
   if (!id) return;
   await prisma.richiesta.delete({ where: { id } });
@@ -472,7 +496,7 @@ export async function eliminaRichiesta(dati: FormData) {
 /* --------------------------------- Contenuti -------------------------------- */
 
 export async function aggiornaContenuto(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
 
   const chiave = stringa(dati, "chiave");
   if (!chiave) return;
@@ -488,7 +512,7 @@ export async function aggiornaContenuto(dati: FormData) {
 /* ---------------------------- Servizi, vantaggi, FAQ --------------------------- */
 
 export async function salvaServizio(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
 
   const id = stringa(dati, "id");
   const titolo = stringa(dati, "titolo");
@@ -512,7 +536,7 @@ export async function salvaServizio(dati: FormData) {
 }
 
 export async function eliminaServizio(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
   const id = stringa(dati, "id");
   if (!id) return;
   await prisma.servizio.delete({ where: { id } });
@@ -520,7 +544,7 @@ export async function eliminaServizio(dati: FormData) {
 }
 
 export async function salvaVantaggio(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
 
   const id = stringa(dati, "id");
   const titolo = stringa(dati, "titolo");
@@ -544,7 +568,7 @@ export async function salvaVantaggio(dati: FormData) {
 }
 
 export async function salvaAutomazione(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
 
   const id = stringa(dati, "id");
   const titolo = stringa(dati, "titolo");
@@ -577,7 +601,7 @@ export async function salvaAutomazione(dati: FormData) {
 }
 
 export async function eliminaAutomazione(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
   const id = stringa(dati, "id");
   if (!id) return;
   await prisma.automazione.delete({ where: { id } });
@@ -585,7 +609,7 @@ export async function eliminaAutomazione(dati: FormData) {
 }
 
 export async function eliminaVantaggio(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
   const id = stringa(dati, "id");
   if (!id) return;
   await prisma.vantaggio.delete({ where: { id } });
@@ -593,7 +617,7 @@ export async function eliminaVantaggio(dati: FormData) {
 }
 
 export async function salvaFaq(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
 
   const id = stringa(dati, "id");
   const domanda = stringa(dati, "domanda");
@@ -616,7 +640,7 @@ export async function salvaFaq(dati: FormData) {
 }
 
 export async function eliminaFaq(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
   const id = stringa(dati, "id");
   if (!id) return;
   await prisma.faq.delete({ where: { id } });
@@ -624,7 +648,7 @@ export async function eliminaFaq(dati: FormData) {
 }
 
 export async function salvaContatto(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
 
   const id = stringa(dati, "id");
   const etichetta = stringa(dati, "etichetta");
@@ -649,7 +673,7 @@ export async function salvaContatto(dati: FormData) {
 }
 
 export async function eliminaContatto(dati: FormData) {
-  await assicuraAdmin();
+  await assicuraSviluppatore();
   const id = stringa(dati, "id");
   if (!id) return;
   await prisma.contatto.delete({ where: { id } });

@@ -110,6 +110,12 @@ export const iconeDisponibili = [
   "code",
   "spark",
   "link",
+  "problema",
+  "domanda",
+  "miglioramento",
+  "cripto",
+  "contanti",
+  "bonifico",
 ];
 
 export function SelettoreIcona({

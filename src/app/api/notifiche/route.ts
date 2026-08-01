@@ -2,23 +2,43 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { leggiSessione } from "@/lib/sessione";
+import { sogliaConservazioneNotifiche } from "@/lib/notifiche";
 
-export async function GET() {
+const PAGINA = 20;
+
+export async function GET(richiesta: Request) {
   const sessione = await leggiSessione();
   if (!sessione) return NextResponse.json({ notifiche: [], nonLette: 0 });
 
+  // "prima" è l'id dell'ultima notifica già mostrata: la pagina successiva
+  // riparte da lì invece che dall'inizio, così "Carica altre" non ripete
+  // le stesse righe se nel frattempo ne arriva una nuova.
+  const cursore = new URL(richiesta.url).searchParams.get("prima");
+
   const [notifiche, nonLette] = await Promise.all([
     prisma.notifica.findMany({
-      where: { utenteId: sessione.utenteId },
+      where: {
+        utenteId: sessione.utenteId,
+        creatoIl: { gte: sogliaConservazioneNotifiche() },
+      },
       orderBy: { creatoIl: "desc" },
-      take: 20,
+      take: PAGINA,
+      ...(cursore ? { cursor: { id: cursore }, skip: 1 } : {}),
     }),
     prisma.notifica.count({
-      where: { utenteId: sessione.utenteId, letta: false },
+      where: {
+        utenteId: sessione.utenteId,
+        letta: false,
+        creatoIl: { gte: sogliaConservazioneNotifiche() },
+      },
     }),
   ]);
 
-  return NextResponse.json({ notifiche, nonLette });
+  return NextResponse.json({
+    notifiche,
+    nonLette,
+    altreDisponibili: notifiche.length === PAGINA,
+  });
 }
 
 const schema = z.object({
@@ -47,7 +67,11 @@ export async function PATCH(richiesta: Request) {
   });
 
   const nonLette = await prisma.notifica.count({
-    where: { utenteId: sessione.utenteId, letta: false },
+    where: {
+      utenteId: sessione.utenteId,
+      letta: false,
+      creatoIl: { gte: sogliaConservazioneNotifiche() },
+    },
   });
 
   return NextResponse.json({ nonLette });

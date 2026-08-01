@@ -14,7 +14,7 @@ export type UtenteSessione = {
   cognome: string | null;
   username: string | null;
   urlFoto: string | null;
-  ruolo: "UTENTE" | "ADMIN";
+  ruolo: "UTENTE" | "SUPPORTO" | "ADMIN" | "DEVELOPER";
 };
 
 type ContestoTelegram = {

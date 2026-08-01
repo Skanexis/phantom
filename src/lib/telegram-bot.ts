@@ -29,6 +29,8 @@ export const etichetteAmbito: Record<string, string> = {
   SITO_WEB: "Sito web",
   APPLICAZIONE: "Applicazione",
   AUTOMAZIONE: "Automazione dei processi",
+  SUPPORTO: "Supporto",
+  EXCHANGE: "Exchange",
 };
 
 export const etichetteStato: Record<string, string> = {

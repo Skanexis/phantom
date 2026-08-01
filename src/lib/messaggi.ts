@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { inviaMessaggio } from "@/lib/telegram-bot";
 import { escapeHtml } from "@/lib/notifiche";
 import { CANALE_ADMIN, pubblica } from "@/lib/eventi";
+import { linkRichiesta } from "@/lib/richieste";
 
 /** Lunghezza massima di un messaggio, condivisa fra API e interfaccia. */
 export const LUNGHEZZA_MASSIMA = 2000;
@@ -56,7 +57,7 @@ export async function inviaMessaggioAdmin({
         utenteId: richiesta.utenteId,
         titolo: `Nuovo messaggio · ${richiesta.codice ?? "richiesta"}`,
         testo: testo.slice(0, 160),
-        url: "/area-personale",
+        url: linkRichiesta(richiesta.codice),
       },
     });
 

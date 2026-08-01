@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { leggiSessione } from "@/lib/sessione";
+import { eStaff } from "@/lib/permessi";
 import { CANALE_ADMIN, type Evento, iscrivi } from "@/lib/eventi";
 
 /**
@@ -64,9 +65,10 @@ export async function GET(richiesta: Request) {
       void inviaStatoIniziale();
 
       const disiscrivi = iscrivi(sessione.utenteId, inviaEvento);
-      // Gli amministratori ricevono anche gli eventi del canale comune.
-      const disiscriviAdmin =
-        sessione.ruolo === "ADMIN" ? iscrivi(CANALE_ADMIN, inviaEvento) : null;
+      // Lo staff riceve anche gli eventi del canale comune.
+      const disiscriviAdmin = eStaff(sessione.ruolo)
+        ? iscrivi(CANALE_ADMIN, inviaEvento)
+        : null;
 
       const battito = setInterval(() => {
         invia(": battito\n\n");

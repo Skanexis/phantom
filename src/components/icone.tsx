@@ -97,6 +97,44 @@ export const Icone = {
       <path d="M3 12h18M14 5l7 7-7 7" />
     </svg>
   ),
+  problema: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <path d="M12 3 21 19H3z" />
+      <path d="M12 9.5v4" />
+      <rect x="11.25" y="15.5" width="1.5" height="1.5" fill="currentColor" stroke="none" />
+    </svg>
+  ),
+  domanda: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <rect x="3" y="3" width="18" height="18" />
+      <path d="M9 9.5c0-1.7 1.3-3 3-3s3 1.1 3 2.8c0 1.7-1.4 2.1-2.4 2.9-.5.4-.6.9-.6 1.5" />
+      <rect x="11.25" y="15.5" width="1.5" height="1.5" fill="currentColor" stroke="none" />
+    </svg>
+  ),
+  miglioramento: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <path d="M3 16 9.5 9.5 13.5 13.5 21 6" />
+      <path d="M15 6h6v6" />
+    </svg>
+  ),
+  cripto: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <path d="M12 2 21 12 12 22 3 12z" />
+      <path d="M12 2v20M3 12h18" />
+    </svg>
+  ),
+  contanti: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <rect x="2" y="6" width="20" height="12" />
+      <path d="M12 8.5 15.5 12 12 15.5 8.5 12z" />
+    </svg>
+  ),
+  bonifico: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <path d="M2 9 12 3l10 6" />
+      <path d="M4 9v10M9 9v10M15 9v10M20 9v10M2 19h20" />
+    </svg>
+  ),
 } as const;
 
 export type NomeIcona = keyof typeof Icone;

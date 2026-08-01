@@ -1,6 +1,11 @@
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "@/lib/prisma";
+import {
+  eStaff,
+  puoGestireOperazioni,
+  puoModificareContenuti,
+} from "@/lib/permessi";
 import type { Ruolo } from "@/generated/prisma/client";
 
 const NOME_COOKIE = "phantomlab_sessione";
@@ -65,9 +70,24 @@ export async function utenteCorrente() {
   return prisma.utente.findUnique({ where: { id: sessione.utenteId } });
 }
 
-export async function richiediAdmin() {
+/** Qualunque membro dello staff: SUPPORTO, ADMIN o DEVELOPER. */
+export async function richiediStaff() {
   const utente = await utenteCorrente();
-  if (!utente || utente.ruolo !== "ADMIN") return null;
+  if (!utente || !eStaff(utente.ruolo)) return null;
+  return utente;
+}
+
+/** Chi può cambiare stati, prorogare, assegnare: ADMIN o DEVELOPER. */
+export async function richiediOperatore() {
+  const utente = await utenteCorrente();
+  if (!utente || !puoGestireOperazioni(utente.ruolo)) return null;
+  return utente;
+}
+
+/** Solo chi può modificare il contenuto del sito: DEVELOPER. */
+export async function richiediSviluppatore() {
+  const utente = await utenteCorrente();
+  if (!utente || !puoModificareContenuti(utente.ruolo)) return null;
   return utente;
 }
 

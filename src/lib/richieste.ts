@@ -37,6 +37,14 @@ export function attendeIlCliente(stato: StatoRichiesta) {
   return stato === "IN_ATTESA_CLIENTE";
 }
 
+/** Link diretto alla scheda Richieste dell'area personale, con la pratica
+ * già in evidenza: usato nelle notifiche così un tocco porta dritto lì
+ * invece di lasciare che sia il cliente a ritrovarla nell'elenco. */
+export function linkRichiesta(codice: string | null) {
+  if (!codice) return "/area-personale?scheda=richieste";
+  return `/area-personale?scheda=richieste&richiesta=${encodeURIComponent(codice)}`;
+}
+
 /** Giorni interi trascorsi da una data. */
 export function giorniDa(data: Date, ora = new Date()) {
   return Math.floor((ora.getTime() - data.getTime()) / (24 * 60 * 60 * 1000));

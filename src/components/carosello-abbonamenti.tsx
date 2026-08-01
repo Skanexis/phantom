@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { vibra } from "@/components/telegram-provider";
 import { PulsanteAttiva } from "@/components/pulsante-attiva";
 import { Icona } from "@/components/icone";
@@ -28,6 +28,10 @@ export function CaroselloAbbonamenti({ piani }: { piani: PianoCarosello[] }) {
   const [piuASinistra, setPiuASinistra] = useState(false);
   const [piuADestra, setPiuADestra] = useState(false);
   const [indiceAttivo, setIndiceAttivo] = useState(0);
+  const ridotto = useReducedMotion();
+  // Distingue il primo calcolo (al montaggio) dai successivi: la vibrazione
+  // deve segnare un cambio di carta fatto dall'utente, non l'avvio.
+  const primoControllo = useRef(true);
 
   useEffect(() => {
     const elemento = scorriRef.current;
@@ -54,7 +58,15 @@ export function CaroselloAbbonamenti({ piani }: { piani: PianoCarosello[] }) {
           vicino = indice;
         }
       });
-      setIndiceAttivo(vicino);
+
+      setIndiceAttivo((precedente) => {
+        // Un piccolo riscontro tattile quando lo scorrimento si aggancia a
+        // una nuova carta: sul telefono si sente come uno scatto preciso
+        // invece di un semplice trascinamento.
+        if (!primoControllo.current && vicino !== precedente) vibra();
+        return vicino;
+      });
+      primoControllo.current = false;
     };
 
     controlla();
@@ -67,6 +79,25 @@ export function CaroselloAbbonamenti({ piani }: { piani: PianoCarosello[] }) {
       osservatore.disconnect();
     };
   }, [piani.length]);
+
+  // Piccolo invito a scorrere: senza, su schermi stretti dove si vede
+  // chiaramente solo la prima carta, niente suggerisce che ce ne sono
+  // altre finché qualcuno non ci prova per caso.
+  useEffect(() => {
+    const elemento = scorriRef.current;
+    if (!elemento || ridotto || piani.length < 2) return;
+    if (elemento.scrollWidth <= elemento.clientWidth) return;
+
+    const id = setTimeout(() => {
+      if (elemento.scrollLeft > 4) return; // l'utente ha già scorso da solo
+      elemento.scrollBy({ left: 34, behavior: "smooth" });
+      setTimeout(() => {
+        elemento.scrollBy({ left: -34, behavior: "smooth" });
+      }, 380);
+    }, 900);
+
+    return () => clearTimeout(id);
+  }, [piani.length, ridotto]);
 
   function scorri(direzione: number) {
     vibra();
@@ -93,7 +124,13 @@ export function CaroselloAbbonamenti({ piani }: { piani: PianoCarosello[] }) {
   if (piani.length === 0) return null;
 
   return (
-    <div className="relative mt-12">
+    <motion.div
+      initial={{ opacity: 0, y: ridotto ? 0 : 18 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-60px" }}
+      transition={{ duration: ridotto ? 0.01 : 0.5, ease: [0.16, 1, 0.3, 1] }}
+      className="relative mt-12"
+    >
       <div className="relative">
         <div
           ref={scorriRef}
@@ -106,7 +143,7 @@ export function CaroselloAbbonamenti({ piani }: { piani: PianoCarosello[] }) {
               key={piano.id}
               piano={piano}
               indice={indice}
-              className="carosello-voce w-[min(85vw,360px)] shrink-0 sm:w-[380px]"
+              className="carosello-voce w-[min(82vw,340px)] shrink-0 sm:w-[380px]"
             />
           ))}
           {/* Spaziatore finale: senza, l'ultima carta finisce a filo del
@@ -137,13 +174,13 @@ export function CaroselloAbbonamenti({ piani }: { piani: PianoCarosello[] }) {
               onClick={() => vaiA(indice)}
               aria-label={`Vai al piano ${piano.nome}`}
               aria-current={indice === indiceAttivo}
-              className="p-1.5"
+              className="flex min-h-11 min-w-11 items-center justify-center"
             >
               <span
-                className={`block h-1.5 transition-all duration-200 ${
+                className={`block h-2 transition-all duration-200 ${
                   indice === indiceAttivo
-                    ? "w-6 bg-[var(--accento)]"
-                    : "w-1.5 bg-[var(--bordo-forte)]"
+                    ? "w-7 bg-[var(--accento)]"
+                    : "w-2 bg-[var(--bordo-forte)]"
                 }`}
               />
             </button>
@@ -171,7 +208,7 @@ export function CaroselloAbbonamenti({ piani }: { piani: PianoCarosello[] }) {
           </button>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -187,12 +224,11 @@ function CartaAbbonamento({
   const icona = ICONE_ROTAZIONE[indice % ICONE_ROTAZIONE.length];
 
   return (
-    <motion.article
+    // Niente animazione per-carta: la fila intera entra già come blocco (vedi
+    // sopra), e qui girerebbe di continuo durante il trascinamento touch,
+    // rubando fotogrammi proprio mentre lo scorrimento deve essere fluido.
+    <article
       role="listitem"
-      initial={{ opacity: 0, y: 18 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, amount: 0.4 }}
-      transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
       className={`superficie relative flex h-full flex-col p-6 sm:p-7 ${
         piano.inEvidenza ? "superficie--evidenza" : ""
       } ${className}`}
@@ -270,6 +306,6 @@ function CartaAbbonamento({
         nome={piano.nome}
         inEvidenza={piano.inEvidenza}
       />
-    </motion.article>
+    </article>
   );
 }

@@ -12,7 +12,9 @@ datasource db {
 
 enum Ruolo {
   UTENTE
+  SUPPORTO
   ADMIN
+  DEVELOPER
 }
 
 enum StatoRichiesta {
@@ -26,7 +28,38 @@ enum StatoRichiesta {
 enum AmbitoSviluppo {
   SITO_WEB
   APPLICAZIONE
+  /// Non più scelta dal modulo generico: si arriva qui solo dalle carte
+  /// della sezione "Automatizzati con noi", che impostano l'ambito da sole.
   AUTOMAZIONE
+  /// Non uno sviluppo su misura: assistenza per chi ha già un abbonamento
+  /// attivo. Il dettaglio del tipo sta in TipoSupporto.
+  SUPPORTO
+  /// Cambio valuta cripto/contanti/bonifico. Il dettaglio sta in
+  /// DirezioneScambio, Criptovaluta e importoCentesimi.
+  EXCHANGE
+}
+
+/// Classificazione di una richiesta di supporto, riservata a chi ha un
+/// abbonamento attivo. Guida colore e icona in tutta l'interfaccia.
+enum TipoSupporto {
+  PROBLEMA
+  DOMANDA
+  MIGLIORAMENTO
+}
+
+/// Verso di conversione per una richiesta di ambito EXCHANGE.
+enum DirezioneScambio {
+  CRIPTO_CONTANTI
+  CONTANTI_CRIPTO
+  CRIPTO_BONIFICO
+  BONIFICO_CRIPTO
+}
+
+/// Criptovalute accettate per lo scambio. Solo due per ora: ogni aggiunta
+/// va verificata con chi gestisce la liquidità prima di aprirla in UI.
+enum Criptovaluta {
+  BTC
+  USDC
 }
 
 enum StatoAbbonamentoUtente {
@@ -120,6 +153,13 @@ model Richiesta {
   codice       String?        @unique
   utenteId     String?
   ambito       AmbitoSviluppo
+  /// Solo per ambito SUPPORTO: quale dei tre tipi, per colore/icona in UI.
+  tipoSupporto TipoSupporto?
+  /// I tre campi seguenti valgono solo per ambito EXCHANGE.
+  direzioneScambio DirezioneScambio?
+  criptovaluta     Criptovaluta?
+  /// Controvalore in euro della transazione, in centesimi come altrove.
+  importoCentesimi Int?
   stato        StatoRichiesta @default(NUOVA)
   nomeContatto String
   contatto     String

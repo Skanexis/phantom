@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { leggiSessione } from "@/lib/sessione";
+import { eStaff } from "@/lib/permessi";
 import { CANALE_ADMIN, pubblica } from "@/lib/eventi";
 
 const schema = z.object({
@@ -25,7 +26,7 @@ export async function POST(richiestaHttp: Request) {
     return NextResponse.json({ errore: "Dati non validi." }, { status: 400 });
   }
 
-  const daAdmin = sessione.ruolo === "ADMIN";
+  const daAdmin = eStaff(sessione.ruolo);
 
   // L'admin scrive in qualsiasi pratica; il cliente solo nelle proprie:
   // senza il vincolo si potrebbe sondare l'esistenza di richieste altrui.

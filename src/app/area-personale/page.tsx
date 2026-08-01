@@ -1,7 +1,9 @@
 import Link from "next/link";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { sogliaConservazioneNotifiche } from "@/lib/notifiche";
 import { utenteCorrente } from "@/lib/sessione";
+import { eStaff } from "@/lib/permessi";
 import { formattaPrezzo } from "@/lib/contenuti";
 import { etichetteAmbito, etichetteStato } from "@/lib/telegram-bot";
 import {
@@ -26,9 +28,14 @@ import { AccessoTelegram } from "@/components/accesso-telegram";
 import { GestioneAbbonamento } from "@/components/gestione-abbonamento";
 import { ConversazioneCliente } from "@/components/conversazione-cliente";
 import { Avatar } from "@/components/avatar";
+import { BadgeRuolo } from "@/components/badge-ruolo";
 import { TrascinaAggiorna } from "@/components/trascina-aggiorna";
 import { Schede } from "@/components/schede-admin";
 import { Divulgatore } from "@/components/divulgatore";
+import { EvidenziaElemento } from "@/components/evidenzia-elemento";
+import { BadgeTipoSupporto } from "@/components/badge-tipo-supporto";
+import { DettaglioScambio } from "@/components/dettaglio-scambio";
+import { vociTipoSupporto } from "@/lib/supporto";
 import {
   BollinoNovita,
   CodiceCopiabile,
@@ -36,7 +43,7 @@ import {
   PercorsoStato,
 } from "@/components/dettagli";
 import { recente, saluto } from "@/lib/tempo";
-import { Etichetta } from "@/components/ui";
+import { Etichetta, Freccia } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +51,12 @@ export const metadata = {
   title: "Area personale — Phantom Lab",
 };
 
-export default async function AreaPersonale() {
+export default async function AreaPersonale({
+  searchParams,
+}: {
+  searchParams: Promise<{ scheda?: string; richiesta?: string }>;
+}) {
+  const parametri = await searchParams;
   const utente = await utenteCorrente();
 
   if (!utente) {
@@ -97,9 +109,12 @@ export default async function AreaPersonale() {
         orderBy: { creatoIl: "desc" },
       }),
       prisma.notifica.findMany({
-        where: { utenteId: utente.id },
+        where: {
+          utenteId: utente.id,
+          creatoIl: { gte: sogliaConservazioneNotifiche() },
+        },
         orderBy: { creatoIl: "desc" },
-        take: 12,
+        take: 20,
       }),
       prisma.abbonamento.findMany({
         where: { attivo: true },
@@ -137,7 +152,7 @@ export default async function AreaPersonale() {
           si tenta d'istinto per aggiornare un elenco sul telefono. */}
       <TrascinaAggiorna />
 
-      <main className="colonne relative mx-auto w-full max-w-[1400px] flex-1 px-4 py-8 sm:px-8 sm:py-16">
+      <main className="colonne relative mx-auto w-full max-w-[1400px] flex-1 px-4 py-8 pb-20 sm:px-8 sm:py-16 sm:pb-24">
         <Rivela>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3.5">
@@ -146,12 +161,15 @@ export default async function AreaPersonale() {
                 <p className="mono text-[11px] text-[var(--testo-debole)]">
                   {saluto()}
                 </p>
-                <h1 className="mt-0.5 truncate text-[22px] font-semibold tracking-[-0.01em] sm:text-[26px]">
-                  {utente.nome ?? "Utente"}
-                </h1>
+                <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                  <h1 className="truncate text-[22px] font-semibold tracking-[-0.01em] sm:text-[26px]">
+                    {utente.nome ?? "Utente"}
+                  </h1>
+                  <BadgeRuolo ruolo={utente.ruolo} />
+                </div>
               </div>
             </div>
-            {utente.ruolo === "ADMIN" && (
+            {eStaff(utente.ruolo) && (
               <Link
                 href="/admin"
                 className="mono spinta flex min-h-11 shrink-0 items-center border border-[var(--accento)] px-4 text-[11px] uppercase tracking-[0.12em] text-[var(--accento)]"
@@ -191,6 +209,7 @@ export default async function AreaPersonale() {
         </Rivela>
 
         <Schede
+          schedaIniziale={parametri.scheda}
           schede={[
             { id: "panoramica", etichetta: "Panoramica" },
             {
@@ -199,7 +218,14 @@ export default async function AreaPersonale() {
               contatore: abbonamentoDaAttenzione ? 1 : 0,
             },
             { id: "richieste", etichetta: "Richieste", contatore: daRispondere },
-            { id: "notifiche", etichetta: "Notifiche", contatore: nonLette },
+            {
+              id: "notifiche",
+              etichetta: "Notifiche",
+              contatore: nonLette,
+              // Non più in barra: si arriva qui dal dropdown nella
+              // navigazione, che ha già il suo badge col conteggio.
+              nascosta: true,
+            },
           ]}
         >
           {{
@@ -228,7 +254,10 @@ export default async function AreaPersonale() {
                 <div className="mt-8">
                   <Etichetta className="block pb-3">Il tuo piano</Etichetta>
                   {attiva ? (
-                    <div className="superficie flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
+                    <Link
+                      href="/area-personale?scheda=abbonamento"
+                      className="superficie group flex flex-wrap items-center justify-between gap-3 p-4 transition-colors hover:border-[var(--bordo-forte)] sm:p-5"
+                    >
                       <div className="min-w-0">
                         <p className="text-[16px] font-semibold tracking-[-0.01em]">
                           {attiva.abbonamento.nome}
@@ -243,8 +272,11 @@ export default async function AreaPersonale() {
                             ` · rinnovo il ${dataBreve(attiva.scadeIl)}`}
                         </p>
                       </div>
-                      <BadgeStato stato="ATTIVO" tipo="abbonamento" />
-                    </div>
+                      <span className="flex shrink-0 items-center gap-2.5">
+                        <BadgeStato stato="ATTIVO" tipo="abbonamento" />
+                        <Freccia className="h-3.5 w-3.5 text-[var(--testo-debole)] transition-transform group-hover:translate-x-1 group-hover:text-[var(--accento)]" />
+                      </span>
+                    </Link>
                   ) : (
                     <div className="superficie flex flex-wrap items-center justify-between gap-4 p-4 sm:p-5">
                       <p className="mono text-[12.5px] text-[var(--testo-tenue)]">
@@ -262,33 +294,56 @@ export default async function AreaPersonale() {
 
                 {notifiche.length > 0 && (
                   <div className="mt-8">
-                    <Etichetta className="block pb-3">
-                      Ultime notifiche
-                    </Etichetta>
+                    <div className="flex items-center justify-between pb-3">
+                      <Etichetta>Ultime notifiche</Etichetta>
+                      <Link
+                        href="/area-personale?scheda=notifiche"
+                        className="mono flex min-h-8 items-center gap-1.5 text-[11px] uppercase tracking-[0.1em] text-[var(--testo-tenue)] transition-colors hover:text-[var(--accento)]"
+                      >
+                        Vedi tutte
+                        <Freccia className="h-3 w-3" />
+                      </Link>
+                    </div>
                     <div className="superficie divide-y divide-[var(--bordo)]">
-                      {notifiche.slice(0, 3).map((notifica) => (
-                        <div
-                          key={notifica.id}
-                          className="flex items-start gap-3 p-4 sm:p-5"
-                        >
-                          <span
-                            aria-hidden="true"
-                            className={`mt-1.5 h-1.5 w-1.5 shrink-0 ${
-                              notifica.letta
-                                ? "bg-[var(--bordo-forte)]"
-                                : "bg-[var(--accento)]"
-                            }`}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[13.5px] font-semibold tracking-[-0.01em]">
-                              {notifica.titolo}
-                            </p>
-                            <p className="mono mt-1 text-[12px] leading-[1.6] text-[var(--testo-tenue)]">
-                              {notifica.testo}
-                            </p>
+                      {notifiche.slice(0, 3).map((notifica) => {
+                        const contenuto = (
+                          <>
+                            <span
+                              aria-hidden="true"
+                              className={`mt-1.5 h-1.5 w-1.5 shrink-0 ${
+                                notifica.letta
+                                  ? "bg-[var(--bordo-forte)]"
+                                  : "bg-[var(--accento)]"
+                              }`}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[13.5px] font-semibold tracking-[-0.01em]">
+                                {notifica.titolo}
+                              </p>
+                              <p className="mono mt-1 text-[12px] leading-[1.6] text-[var(--testo-tenue)]">
+                                {notifica.testo}
+                              </p>
+                            </div>
+                          </>
+                        );
+
+                        return notifica.url ? (
+                          <Link
+                            key={notifica.id}
+                            href={notifica.url}
+                            className="flex items-start gap-3 p-4 transition-colors hover:bg-[var(--sfondo)] sm:p-5"
+                          >
+                            {contenuto}
+                          </Link>
+                        ) : (
+                          <div
+                            key={notifica.id}
+                            className="flex items-start gap-3 p-4 sm:p-5"
+                          >
+                            {contenuto}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -309,8 +364,29 @@ export default async function AreaPersonale() {
                   </Link>
                 </div>
               ) : (
-                <Scaglionato className="flex flex-col gap-4">
-                  {sottoscrizioni.map((sottoscrizione) => {
+                <div className="flex flex-col gap-6">
+                  {attiva && (
+                    <div className="superficie flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6">
+                      <div className="min-w-0">
+                        <p className="text-[15px] font-semibold tracking-[-0.01em]">
+                          Serve una mano?
+                        </p>
+                        <p className="mono mt-1 text-[12px] leading-[1.6] text-[var(--testo-tenue)]">
+                          Con un piano attivo puoi scrivere direttamente al
+                          team: problemi, domande o idee di miglioramento.
+                        </p>
+                      </div>
+                      <Link
+                        href="/supporto"
+                        className="mono spinta flex min-h-11 shrink-0 items-center justify-center border border-[var(--bordo-pieno)] bg-[var(--bordo-pieno)] px-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--testo-inverso)]"
+                      >
+                        Scrivi al supporto
+                      </Link>
+                    </div>
+                  )}
+
+                  <Scaglionato className="flex flex-col gap-4">
+                    {sottoscrizioni.map((sottoscrizione) => {
                     const stato = statoEffettivo(sottoscrizione);
                     const giorni = giorniAllaScadenza(sottoscrizione.scadeIl);
                     const avviso = inScadenza(sottoscrizione);
@@ -406,7 +482,8 @@ export default async function AreaPersonale() {
                       </Voce>
                     );
                   })}
-                </Scaglionato>
+                  </Scaglionato>
+                </div>
               ),
 
             richieste:
@@ -450,7 +527,11 @@ export default async function AreaPersonale() {
                   <Scaglionato className="flex flex-col gap-4">
                     {richiesteAperte.map((richiesta) => (
                       <Voce key={richiesta.id}>
-                        <CartaRichiesta richiesta={richiesta} />
+                        <EvidenziaElemento
+                          attivo={richiesta.codice === parametri.richiesta}
+                        >
+                          <CartaRichiesta richiesta={richiesta} />
+                        </EvidenziaElemento>
                       </Voce>
                     ))}
                   </Scaglionato>
@@ -464,11 +545,21 @@ export default async function AreaPersonale() {
                   <Divulgatore
                     titolo="Completate"
                     contatore={richiesteChiuse.length}
-                    apertoIniziale={richiesteAperte.length === 0}
+                    apertoIniziale={
+                      richiesteAperte.length === 0 ||
+                      richiesteChiuse.some(
+                        (r) => r.codice === parametri.richiesta,
+                      )
+                    }
                   >
                     <div className="flex flex-col gap-4 pt-4 pb-2">
                       {richiesteChiuse.map((richiesta) => (
-                        <CartaRichiesta key={richiesta.id} richiesta={richiesta} />
+                        <EvidenziaElemento
+                          key={richiesta.id}
+                          attivo={richiesta.codice === parametri.richiesta}
+                        >
+                          <CartaRichiesta richiesta={richiesta} />
+                        </EvidenziaElemento>
                       ))}
                     </div>
                   </Divulgatore>
@@ -478,12 +569,14 @@ export default async function AreaPersonale() {
             notifiche: (
               <PannelloNotifiche
                 dentroScheda
+                altreIniziali={notifiche.length === 20}
                 iniziali={notifiche.map((n) => ({
                   id: n.id,
                   titolo: n.titolo,
                   testo: n.testo,
                   letta: n.letta,
                   creatoIl: n.creatoIl.toISOString(),
+                  url: n.url,
                 }))}
               />
             ),
@@ -532,11 +625,16 @@ function CartaRichiesta({ richiesta }: { richiesta: RichiestaConStorico }) {
             </span>
           )}
           <h3 className="text-[17px] font-semibold tracking-[-0.01em] sm:text-[18px]">
-            {etichetteAmbito[richiesta.ambito]}
+            {richiesta.ambito === "SUPPORTO"
+              ? (vociTipoSupporto(richiesta.tipoSupporto)?.etichetta ?? "Supporto")
+              : etichetteAmbito[richiesta.ambito]}
           </h3>
         </div>
         <div className="flex items-center gap-2">
           {recente(richiesta.aggiornatoIl) && <BollinoNovita />}
+          {richiesta.ambito === "SUPPORTO" && (
+            <BadgeTipoSupporto tipo={richiesta.tipoSupporto} />
+          )}
           <BadgeStato stato={richiesta.stato} />
         </div>
       </div>
@@ -564,6 +662,16 @@ function CartaRichiesta({ richiesta }: { richiesta: RichiestaConStorico }) {
         <p className="mono mt-3 border border-[var(--accento)] px-3.5 py-2.5 text-[11.5px] leading-[1.6] text-[var(--accento)]">
           Aspettiamo una tua risposta per procedere.
         </p>
+      )}
+
+      {richiesta.ambito === "EXCHANGE" && (
+        <div className="mt-3">
+          <DettaglioScambio
+            direzione={richiesta.direzioneScambio}
+            criptovaluta={richiesta.criptovaluta}
+            importoCentesimi={richiesta.importoCentesimi}
+          />
+        </div>
       )}
 
       <p className="mono mt-3 whitespace-pre-line text-[13px] leading-[1.75] break-words text-[var(--testo-tenue)] sm:text-[12.5px]">

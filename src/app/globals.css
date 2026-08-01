@@ -24,6 +24,10 @@
   --accento-testo: #0a0a0a;
   --allarme: #ff5c38;
   --ok: #3fd97f;
+  /* Terzo colore di stato, per non sovraccaricare allarme/ok con significati
+     che non sono né errore né conferma: le domande di supporto. Contrasto
+     verificato ~7.2:1 sul fondo scuro. */
+  --info: #4d9dff;
   --griglia: rgba(245, 245, 240, 0.045);
   color-scheme: dark;
 }
@@ -44,6 +48,8 @@
   --accento-testo: #0a0a0a;
   --allarme: #d63b16;
   --ok: #1f9d5a;
+  /* Contrasto ~4.9:1 sul fondo chiaro, sopra la soglia AA. */
+  --info: #1c64d1;
   --griglia: rgba(10, 10, 10, 0.05);
   color-scheme: light;
 }
@@ -281,19 +287,48 @@ body {
 /* --------------------------------- Carosello --------------------------------- */
 
 /* Scorrimento orizzontale con aggancio: ogni carta si ferma allineata,
-   niente posizioni intermedie che tagliano una scheda a metà. */
+   niente posizioni intermedie che tagliano una scheda a metà.
+   touch-action: pan-x dice subito al browser l'asse del gesto, invece di
+   attendere i primi touchmove per capire se è uno scroll orizzontale o
+   verticale della pagina: senza, ogni trascinamento parte con un piccolo
+   scatto di ritardo che su mobile si sente come "impastato". */
 .carosello {
   display: flex;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
-  scroll-padding-inline: var(--carosello-margine, 1rem);
+  scroll-padding-inline: 1rem;
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+}
+
+@media (min-width: 640px) {
+  .carosello {
+    scroll-padding-inline: 2rem;
+  }
+}
+
+/* ------------------------------- Evidenziazione ------------------------------- */
+
+/* Segna per un istante l'elemento raggiunto da un link esterno (una
+   notifica che punta a una richiesta precisa in un elenco lungo): l'anello
+   si spegne da solo, non serve interazione per toglierlo. */
+@keyframes pulso-evidenzia {
+  0%,
+  16% {
+    box-shadow: 0 0 0 2px var(--accento);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+.evidenziata {
+  animation: pulso-evidenzia 2.2s ease-out;
 }
 
 .carosello-voce {
   scroll-snap-align: start;
-  scroll-snap-stop: always;
 }
 
 /* Selezione coerente con l'accento. */
@@ -309,6 +344,7 @@ body {
 
   .cursore::after,
   .nastro,
+  .evidenziata,
   /* animate-ping è una classe di Tailwind: non passa da useReducedMotion
      e senza questa riga continuerebbe a pulsare. */
   .animate-ping {
