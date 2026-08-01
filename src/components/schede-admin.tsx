@@ -34,6 +34,18 @@ export function SchedeAdmin({
   const [altroADestra, setAltroADestra] = useState(false);
   const barra = useRef<HTMLDivElement>(null);
 
+  // Riallinea la scheda attiva quando cambia il link di arrivo (es. "Guarda
+  // tutte le notifiche" da un'altra scheda già montata): un useState non
+  // reagirebbe da solo, perché il valore iniziale conta solo al montaggio.
+  // Aggiustamento durante il render, non in un effetto: se l'utente ha già
+  // scelto un'altra scheda a mano, primaValida resta la stessa fra un
+  // render e l'altro e questo blocco non la scavalca.
+  const [primaValidaVista, setPrimaValidaVista] = useState(primaValida);
+  if (primaValida !== primaValidaVista) {
+    setPrimaValidaVista(primaValida);
+    setAttiva(primaValida);
+  }
+
   // Se si arriva già su una scheda diversa dalla prima, la si porta in
   // vista: da link esterno può iniziare fuori dallo schermo, a metà barra.
   useEffect(() => {
@@ -42,9 +54,8 @@ export function SchedeAdmin({
       `[data-scheda="${primaValida}"]`,
     );
     elemento?.scrollIntoView({ behavior: "instant", block: "nearest", inline: "nearest" });
-    // Solo al montaggio: dopo è l'utente a scegliere dove scorrere.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [primaValida]);
 
   /**
    * Con otto schede su uno schermo stretto metà sono fuori vista, e una

@@ -135,6 +135,12 @@ export const Icone = {
       <path d="M4 9v10M9 9v10M15 9v10M20 9v10M2 19h20" />
     </svg>
   ),
+  campanella: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <path d="M12 3c-2.8 0-5 2.2-5 5v4l-2 4h14l-2-4V8c0-2.8-2.2-5-5-5z" />
+      <path d="M10 18a2 2 0 0 0 4 0" />
+    </svg>
+  ),
 } as const;
 
 export type NomeIcona = keyof typeof Icone;

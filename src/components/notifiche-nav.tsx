@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useTelegram, vibra } from "@/components/telegram-provider";
 import { useFlusso } from "@/components/flusso-provider";
 import { Avatar } from "@/components/avatar";
+import { Icona } from "@/components/icone";
 import { Freccia } from "@/components/ui";
 import { tempoRelativo } from "@/lib/tempo";
 
@@ -19,9 +20,10 @@ type Notifica = {
 };
 
 /**
- * Avatar + badge al posto del link "Account" in navigazione: un tocco apre
- * un'anteprima delle ultime notifiche senza lasciare la pagina, invece di
- * dover sempre passare dall'area personale solo per dare un'occhiata.
+ * Avatar e campanella al posto del link "Account" in navigazione: l'avatar
+ * porta dritto al profilo, la campanella apre un'anteprima delle ultime
+ * notifiche senza lasciare la pagina — due gesti diversi non devono
+ * condividere lo stesso tocco.
  */
 export function NotificheNav() {
   const { utente } = useTelegram();
@@ -90,36 +92,46 @@ export function NotificheNav() {
   const anteprima = notifiche.slice(0, 2);
 
   return (
-    <div ref={contenitore} className="relative flex items-stretch">
-      <button
-        type="button"
-        onClick={() => {
-          vibra();
-          setAperto((v) => !v);
-        }}
-        aria-label="Notifiche"
-        aria-expanded={aperto}
-        className="relative flex items-center gap-2 border-l border-[var(--bordo)] px-3.5 transition-colors hover:bg-[var(--sfondo-alt)]"
+    <div className="flex items-stretch">
+      <Link
+        href="/area-personale"
+        onClick={() => vibra()}
+        aria-label="Il tuo profilo"
+        className="flex items-center border-l border-[var(--bordo)] px-3.5 transition-colors hover:bg-[var(--sfondo-alt)]"
       >
         <Avatar nome={utente.nome} urlFoto={utente.urlFoto} dimensione={26} />
-        <AnimatePresence>
-          {nonLette > 0 && (
-            <motion.span
-              key={nonLette}
-              initial={{ scale: 0 }}
-              animate={{ scale: [0, 1.35, 1] }}
-              exit={{ scale: 0 }}
-              transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-              aria-label={`${nonLette} notifiche non lette`}
-              className="mono absolute right-1 top-1.5 flex h-4 min-w-4 items-center justify-center bg-[var(--allarme)] px-1 text-[9px] font-bold text-white"
-            >
-              {nonLette > 9 ? "9+" : nonLette}
-            </motion.span>
-          )}
-        </AnimatePresence>
-      </button>
+      </Link>
 
-      <AnimatePresence>
+      <div ref={contenitore} className="relative flex items-stretch">
+        <button
+          type="button"
+          onClick={() => {
+            vibra();
+            setAperto((v) => !v);
+          }}
+          aria-label="Notifiche"
+          aria-expanded={aperto}
+          className="relative flex items-center border-l border-[var(--bordo)] px-3.5 transition-colors hover:bg-[var(--sfondo-alt)]"
+        >
+          <Icona nome="campanella" className="h-[18px] w-[18px]" />
+          <AnimatePresence>
+            {nonLette > 0 && (
+              <motion.span
+                key={nonLette}
+                initial={{ scale: 0 }}
+                animate={{ scale: [0, 1.35, 1] }}
+                exit={{ scale: 0 }}
+                transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+                aria-label={`${nonLette} notifiche non lette`}
+                className="mono absolute right-0.5 top-1.5 flex h-4 min-w-4 items-center justify-center bg-[var(--allarme)] px-1 text-[9px] font-bold text-white"
+              >
+                {nonLette > 9 ? "9+" : nonLette}
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </button>
+
+        <AnimatePresence>
         {aperto && (
           <motion.div
             initial={{ opacity: 0, y: -8 }}
@@ -208,7 +220,8 @@ export function NotificheNav() {
             </Link>
           </motion.div>
         )}
-      </AnimatePresence>
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
