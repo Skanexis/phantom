@@ -27,6 +27,7 @@ const schema = z.object({
   nomeContatto: z.string().trim().min(2).max(80).optional(),
   budget: z.string().trim().max(60).optional(),
   messaggio: z.string().trim().max(2000).optional(),
+  automazioneSlug: z.string().trim().max(80).optional(),
   tipoSupporto: z.enum(["PROBLEMA", "DOMANDA", "MIGLIORAMENTO"]).optional(),
   direzioneScambio: z
     .enum(["CRIPTO_CONTANTI", "CONTANTI_CRIPTO", "CRIPTO_BONIFICO", "BONIFICO_CRIPTO"])
@@ -58,9 +59,11 @@ export async function POST(richiestaHttp: Request) {
   const dati = risultato.data;
   const supporto = dati.ambito === "SUPPORTO";
   const exchange = dati.ambito === "EXCHANGE";
+  const automazione = dati.ambito === "AUTOMAZIONE";
 
   let voceScambio: ReturnType<typeof voceDirezione> = null;
   let voceCripto: ReturnType<typeof voceCriptovaluta> = null;
+  let automazioneScelta: { slug: string; titolo: string } | null = null;
 
   if (exchange) {
     voceScambio = voceDirezione(dati.direzioneScambio ?? null);
@@ -70,6 +73,24 @@ export async function POST(richiestaHttp: Request) {
         { errore: "Completa direzione, criptovaluta e importo." },
         { status: 400 },
       );
+    }
+  } else if (automazione) {
+    // Il nome arriva dal profilo come per supporto ed exchange: qui basta
+    // scegliere l'automazione (già fatto navigando dalla homepage) e
+    // raccontare i dettagli — non ridigitare chi si è già autenticato.
+    if (!dati.messaggio || dati.messaggio.length < 10) {
+      return NextResponse.json(
+        { errore: "Controlla i campi del modulo e riprova." },
+        { status: 400 },
+      );
+    }
+    if (dati.automazioneSlug) {
+      const trovata = await prisma.automazione.findUnique({
+        where: { slug: dati.automazioneSlug },
+      });
+      if (trovata) {
+        automazioneScelta = { slug: trovata.slug, titolo: trovata.titolo };
+      }
     }
   } else if (supporto) {
     // Il supporto è incluso negli abbonamenti: senza questo controllo lato
@@ -118,7 +139,7 @@ export async function POST(richiestaHttp: Request) {
   // nome: chi scrive è già autenticato, non serve ridigitarlo.
   const contatto = riferimentoUtente(utente);
   const nomeContatto =
-    supporto || exchange
+    supporto || exchange || automazione
       ? (utente?.nome ?? utente?.username ?? "Cliente")
       : dati.nomeContatto!;
 
@@ -141,6 +162,8 @@ export async function POST(richiestaHttp: Request) {
       direzioneScambio: exchange ? dati.direzioneScambio : null,
       criptovaluta: exchange ? dati.criptovaluta : null,
       importoCentesimi: exchange ? dati.importoCentesimi : null,
+      automazioneSlug: automazioneScelta?.slug ?? null,
+      automazioneTitolo: automazioneScelta?.titolo ?? null,
       nomeContatto,
       contatto,
       budget: dati.budget || null,
@@ -155,7 +178,9 @@ export async function POST(richiestaHttp: Request) {
   const voceSupporto = supporto ? vociTipoSupporto(dati.tipoSupporto ?? null) : null;
   const etichetta =
     voceSupporto?.etichetta ??
-    (exchange ? "Exchange" : (etichetteAmbito[dati.ambito] ?? dati.ambito));
+    (exchange
+      ? "Exchange"
+      : (automazioneScelta?.titolo ?? etichetteAmbito[dati.ambito] ?? dati.ambito));
 
   const rigaScambio = exchange
     ? `${voceScambio!.etichetta} · ${dati.criptovaluta} · ${formattaEuro(dati.importoCentesimi!)} (commissione ${formattaEuro(calcolaCommissione(dati.importoCentesimi!).commissioneCentesimi)})`

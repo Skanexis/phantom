@@ -288,10 +288,10 @@ body {
 
 /* Scorrimento orizzontale con aggancio: ogni carta si ferma allineata,
    niente posizioni intermedie che tagliano una scheda a metà.
-   touch-action: pan-x dice subito al browser l'asse del gesto, invece di
-   attendere i primi touchmove per capire se è uno scroll orizzontale o
-   verticale della pagina: senza, ogni trascinamento parte con un piccolo
-   scatto di ritardo che su mobile si sente come "impastato". */
+   touch-action: pan-x pan-y lascia al browser entrambi gli assi: con solo
+   pan-x, il gesto verticale non funzionava affatto sopra una carta — su
+   mobile la carta riempie quasi tutto lo schermo, quindi ogni tentativo di
+   scorrere la pagina in giù ci finiva sopra e restava bloccato. */
 .carosello {
   display: flex;
   overflow-x: auto;
@@ -299,7 +299,7 @@ body {
   scroll-padding-inline: 1rem;
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-x;
+  touch-action: pan-x pan-y;
 }
 
 @media (min-width: 640px) {

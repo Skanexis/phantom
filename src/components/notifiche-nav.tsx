@@ -138,26 +138,26 @@ export function NotificheNav() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
-            className="absolute right-0 top-full z-50 w-[min(92vw,360px)] border border-[var(--bordo)] bg-[var(--sfondo)] shadow-[3px_3px_0_var(--bordo-pieno)]"
+            className="absolute right-0 top-full z-50 w-[min(92vw,380px)] border border-[var(--bordo)] bg-[var(--sfondo)] shadow-lg"
           >
-            <div className="border-b border-[var(--bordo)] px-4 py-3">
-              <span className="mono text-[11px] uppercase tracking-[0.12em] text-[var(--testo-tenue)]">
+            <div className="px-5 pt-4 pb-2">
+              <span className="mono text-[12px] uppercase tracking-[0.12em] text-[var(--testo-tenue)]">
                 {nonLette > 0 ? `${nonLette} da leggere` : "Notifiche"}
               </span>
             </div>
 
             {anteprima.length === 0 ? (
-              <p className="mono px-4 py-6 text-[12px] text-[var(--testo-tenue)]">
+              <p className="px-5 py-7 text-[14px] text-[var(--testo-tenue)]">
                 Nessuna notifica per ora.
               </p>
             ) : (
-              <div>
+              <div className="flex flex-col">
                 {anteprima.map((notifica, indice) => {
                   const contenuto = (
                     <>
                       <span
                         aria-hidden="true"
-                        className={`mt-1.5 h-1.5 w-1.5 shrink-0 ${
+                        className={`mt-2 h-2 w-2 shrink-0 rounded-full ${
                           notifica.letta
                             ? "bg-[var(--bordo-forte)]"
                             : "bg-[var(--accento)]"
@@ -165,14 +165,14 @@ export function NotificheNav() {
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline justify-between gap-2">
-                          <p className="truncate text-[13px] font-semibold tracking-[-0.01em]">
+                          <p className="truncate text-[15px] font-semibold tracking-[-0.01em]">
                             {notifica.titolo}
                           </p>
-                          <span className="mono shrink-0 text-[9.5px] text-[var(--testo-debole)]">
+                          <span className="mono shrink-0 text-[10.5px] text-[var(--testo-debole)]">
                             {tempoRelativo(notifica.creatoIl)}
                           </span>
                         </div>
-                        <p className="mono mt-0.5 line-clamp-2 text-[11.5px] leading-[1.5] text-[var(--testo-tenue)]">
+                        <p className="mt-1 line-clamp-2 text-[13.5px] leading-[1.5] text-[var(--testo-tenue)]">
                           {notifica.testo}
                         </p>
                       </div>
@@ -195,14 +195,12 @@ export function NotificheNav() {
                             segnaLetta(notifica.id);
                             setAperto(false);
                           }}
-                          className="flex gap-2.5 border-b border-[var(--bordo)] px-4 py-3 transition-colors hover:bg-[var(--sfondo-alt)]"
+                          className="flex gap-3 px-5 py-3.5 transition-colors hover:bg-[var(--sfondo-alt)]"
                         >
                           {contenuto}
                         </Link>
                       ) : (
-                        <div className="flex gap-2.5 border-b border-[var(--bordo)] px-4 py-3">
-                          {contenuto}
-                        </div>
+                        <div className="flex gap-3 px-5 py-3.5">{contenuto}</div>
                       )}
                     </div>
                   );
@@ -213,7 +211,7 @@ export function NotificheNav() {
             <Link
               href="/area-personale?scheda=notifiche"
               onClick={() => setAperto(false)}
-              className="mono flex min-h-11 items-center justify-center gap-2 px-4 text-[11px] uppercase tracking-[0.12em] text-[var(--testo-tenue)] transition-colors hover:bg-[var(--sfondo-alt)] hover:text-[var(--accento)]"
+              className="mono mt-1 flex min-h-12 items-center justify-center gap-2 px-4 py-3 text-[12px] uppercase tracking-[0.12em] text-[var(--testo-tenue)] transition-colors hover:bg-[var(--sfondo-alt)] hover:text-[var(--accento)]"
             >
               Guarda tutte le notifiche
               <Freccia className="h-3 w-3" />

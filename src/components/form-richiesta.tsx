@@ -29,7 +29,15 @@ type Ambito = (typeof ambiti)[number]["valore"];
 const classiCampo =
   "mono w-full border border-[var(--bordo)] bg-[var(--sfondo)] px-4 py-3.5 text-[13px] text-[var(--testo)] outline-none transition-colors placeholder:text-[var(--testo-debole)] focus:border-[var(--accento)]";
 
-export function FormRichiesta({ ambitoIniziale }: { ambitoIniziale?: string }) {
+export function FormRichiesta({
+  ambitoIniziale,
+  automazione,
+}: {
+  ambitoIniziale?: string;
+  /** Arrivando da una scheda di Automazioni: il modulo si riduce a dettagli
+   * e budget, senza far ridigitare nome e ambito che sono già impliciti. */
+  automazione?: { slug: string; titolo: string } | null;
+}) {
   const predefinito = ambiti.some((a) => a.valore === ambitoIniziale)
     ? (ambitoIniziale as Ambito)
     : "SITO_WEB";
@@ -52,10 +60,15 @@ export function FormRichiesta({ ambitoIniziale }: { ambitoIniziale?: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ambito,
-          nomeContatto: dati.get("nomeContatto"),
-          budget: dati.get("budget"),
-          messaggio: dati.get("messaggio"),
+          ambito: automazione ? "AUTOMAZIONE" : ambito,
+          automazioneSlug: automazione?.slug,
+          // FormData.get() torna null per un campo assente (qui non c'è
+          // "nomeContatto" nel modulo semplificato): zod .optional() accetta
+          // undefined ma non null, quindi senza questo la validazione
+          // fallisce sempre in modalità automazione.
+          nomeContatto: dati.get("nomeContatto") || undefined,
+          budget: dati.get("budget") || undefined,
+          messaggio: dati.get("messaggio") || undefined,
         }),
       });
 
@@ -126,6 +139,62 @@ export function FormRichiesta({ ambitoIniziale }: { ambitoIniziale?: string }) {
           </Link>
         </div>
       </motion.div>
+    );
+  }
+
+  if (automazione) {
+    return (
+      <form onSubmit={gestisciInvio} className="flex flex-col">
+        <p className="mono border border-dashed border-[var(--bordo)] px-4 py-3 text-[11.5px] leading-[1.6] text-[var(--testo-tenue)]">
+          Ti ricontattiamo sul tuo account Telegram collegato. Non serve
+          scrivere altri recapiti: bastano i dettagli qui sotto.
+        </p>
+
+        <div className="mt-6 flex flex-col gap-6">
+          <Campo
+            etichetta="Budget (facoltativo)"
+            nome="budget"
+            placeholder="Es. 1.000 – 3.000 €"
+          />
+
+          <label className="flex flex-col gap-2.5">
+            <Etichetta>Dettagli</Etichetta>
+            <textarea
+              name="messaggio"
+              required
+              minLength={10}
+              rows={6}
+              placeholder="Cosa vuoi automatizzare, con quali strumenti lavori oggi, tempistiche."
+              className={`${classiCampo} resize-none`}
+            />
+          </label>
+        </div>
+
+        <AnimatePresence>
+          {errore && (
+            <motion.p
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mono mt-6 border border-[var(--allarme)] px-4 py-3 text-[12px] text-[var(--allarme)]"
+            >
+              {errore}
+            </motion.p>
+          )}
+        </AnimatePresence>
+
+        <button
+          type="submit"
+          disabled={invio}
+          className="mono spinta mt-8 border border-[var(--bordo-pieno)] bg-[var(--bordo-pieno)] px-6 py-4 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--testo-inverso)] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {invio ? "Invio in corso…" : "Invia richiesta →"}
+        </button>
+
+        <p className="mono mt-4 text-center text-[11px] uppercase tracking-[0.1em] text-[var(--testo-debole)]">
+          Nessun impegno
+        </p>
+      </form>
     );
   }
 

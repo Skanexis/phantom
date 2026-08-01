@@ -45,8 +45,13 @@ export function vocePerRichiesta(
     richiesta.ambito === "SUPPORTO"
       ? vociTipoSupporto(richiesta.tipoSupporto)
       : null;
+  // Per AUTOMAZIONE il titolo scelto dal cliente è più utile del generico
+  // "Automazione dei processi": dice subito quale funzione ha richiesto.
   const etichettaAmbito =
-    voceSupporto?.etichetta ?? etichetteAmbito[richiesta.ambito];
+    voceSupporto?.etichetta ??
+    (richiesta.ambito === "AUTOMAZIONE"
+      ? (richiesta.automazioneTitolo ?? etichetteAmbito[richiesta.ambito])
+      : etichetteAmbito[richiesta.ambito]);
 
   return {
     id: richiesta.id,
@@ -58,6 +63,7 @@ export function vocePerRichiesta(
       richiesta.messaggio,
       richiesta.utente?.username ?? "",
       etichettaAmbito,
+      richiesta.automazioneTitolo ?? "",
     ]
       .join(" ")
       .toLowerCase(),

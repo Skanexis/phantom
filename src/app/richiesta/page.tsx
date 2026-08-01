@@ -33,7 +33,7 @@ export default async function PaginaRichiesta({
   const automazione = parametri.funzione
     ? await prisma.automazione.findUnique({
         where: { slug: parametri.funzione },
-        select: { titolo: true },
+        select: { slug: true, titolo: true },
       })
     : null;
 
@@ -88,7 +88,10 @@ export default async function PaginaRichiesta({
           <div className="mt-12">
             <Rivela ritardo={0.08}>
               {utente ? (
-                <FormRichiesta ambitoIniziale={parametri.ambito} />
+                <FormRichiesta
+                  ambitoIniziale={parametri.ambito}
+                  automazione={automazione}
+                />
               ) : (
                 <AccessoTelegram
                   titolo="Prima collega l'account"

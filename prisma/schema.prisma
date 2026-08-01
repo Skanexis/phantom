@@ -160,6 +160,12 @@ model Richiesta {
   criptovaluta     Criptovaluta?
   /// Controvalore in euro della transazione, in centesimi come altrove.
   importoCentesimi Int?
+  /// I due campi seguenti valgono solo per ambito AUTOMAZIONE: copiati al
+  /// momento dell'invio, non una relazione, così una richiesta già inviata
+  /// mantiene il titolo scelto anche se l'automazione viene poi rinominata
+  /// o rimossa dal pannello.
+  automazioneSlug   String?
+  automazioneTitolo String?
   stato        StatoRichiesta @default(NUOVA)
   nomeContatto String
   contatto     String

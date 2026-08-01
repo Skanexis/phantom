@@ -18,6 +18,7 @@ import { SezioneRichieste } from "./sezioni/richieste";
 import { SezioneExchange } from "./sezioni/exchange";
 import { SezioneSottoscrizioni } from "./sezioni/sottoscrizioni";
 import { SezioneAbbonamenti } from "./sezioni/abbonamenti";
+import { SezioneRuoli } from "./sezioni/ruoli";
 import {
   SezioneAutomazioni,
   SezioneContatti,
@@ -80,6 +81,7 @@ export default async function PannelloAdmin() {
     automazioni,
     faq,
     contatti,
+    staff,
   ] = await Promise.all([
     prisma.abbonamento.findMany({
       orderBy: { ordine: "asc" },
@@ -108,6 +110,12 @@ export default async function PannelloAdmin() {
     prisma.automazione.findMany({ orderBy: { ordine: "asc" } }),
     prisma.faq.findMany({ orderBy: { ordine: "asc" } }),
     prisma.contatto.findMany({ orderBy: { ordine: "asc" } }),
+    // Solo lo staff attuale: la tabella utenti può avere migliaia di righe,
+    // ma chi ha un ruolo oltre UTENTE è sempre una manciata.
+    prisma.utente.findMany({
+      where: { ruolo: { in: ["SUPPORTO", "ADMIN", "DEVELOPER"] } },
+      orderBy: [{ ruolo: "desc" }, { creatoIl: "asc" }],
+    }),
   ]);
 
   const richiesteNuove = richieste.filter((r) => r.stato === "NUOVA").length;
@@ -275,11 +283,13 @@ export default async function PannelloAdmin() {
               etichetta: "Exchange",
               contatore: exchangeNuove,
             },
-            // Il contenuto del sito (piani, testi, vetrina) resta riservato
-            // a chi ha ruolo DEVELOPER: ADMIN e SUPPORTO non vedono queste
-            // schede, non solo non possono salvarle.
+            // Il contenuto del sito (piani, testi, vetrina) e la gestione
+            // dei ruoli restano riservati a chi ha ruolo DEVELOPER: ADMIN e
+            // SUPPORTO non vedono queste schede, non solo non possono
+            // salvarle.
             ...(gestisceContenuti
               ? [
+                  { id: "ruoli", etichetta: "Ruoli" },
                   { id: "abbonamenti", etichetta: "Piani" },
                   { id: "servizi", etichetta: "Servizi" },
                   { id: "vantaggi", etichetta: "Vantaggi" },
@@ -314,6 +324,7 @@ export default async function PannelloAdmin() {
             ),
             ...(gestisceContenuti
               ? {
+                  ruoli: <SezioneRuoli staff={staff} />,
                   abbonamenti: (
                     <SezioneAbbonamenti
                       piani={abbonamenti}

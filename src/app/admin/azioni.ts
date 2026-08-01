@@ -18,6 +18,7 @@ import { linkRichiesta } from "@/lib/richieste";
 import { LUNGHEZZA_MASSIMA, inviaMessaggioAdmin } from "@/lib/messaggi";
 import { PREFISSO_ABBONAMENTO, codiceUnico } from "@/lib/codici";
 import type {
+  Ruolo,
   StatoAbbonamentoUtente,
   StatoRichiesta,
 } from "@/generated/prisma/client";
@@ -29,6 +30,13 @@ const statiRichiesta = [
   "COMPLETATA",
   "ANNULLATA",
 ] as const;
+
+/**
+ * Ruoli assegnabili dal pannello: DEVELOPER resta fuori di proposito.
+ * Chi lo detiene lo mantiene finché non lo cambia lo script da console, e
+ * nessuno lo ottiene passando dal sito.
+ */
+const RUOLI_ASSEGNABILI_DA_PANNELLO = ["UTENTE", "SUPPORTO", "ADMIN"] as const;
 
 const statiAbbonamento = [
   "IN_ATTESA",
@@ -678,4 +686,39 @@ export async function eliminaContatto(dati: FormData) {
   if (!id) return;
   await prisma.contatto.delete({ where: { id } });
   rinfresca();
+}
+
+/* ----------------------------------- Ruoli ---------------------------------- */
+
+/**
+ * Solo DEVELOPER può cambiare ruolo a un altro utente, e solo fra
+ * UTENTE/SUPPORTO/ADMIN: DEVELOPER non si assegna né si toglie da qui,
+ * in nessuna delle due direzioni — resta un'operazione da console.
+ */
+export async function impostaRuoloUtente(dati: FormData) {
+  await assicuraSviluppatore();
+
+  const riferimento = stringa(dati, "utente");
+  const nuovoRuolo = stringa(dati, "ruolo") as Ruolo;
+  if (
+    !riferimento ||
+    !RUOLI_ASSEGNABILI_DA_PANNELLO.includes(
+      nuovoRuolo as (typeof RUOLI_ASSEGNABILI_DA_PANNELLO)[number],
+    )
+  ) {
+    return;
+  }
+
+  const pulito = riferimento.replace(/^@/, "");
+  const utente = await prisma.utente.findFirst({
+    where: { OR: [{ telegramId: pulito }, { username: pulito }] },
+  });
+  if (!utente || utente.ruolo === "DEVELOPER") return;
+
+  await prisma.utente.update({
+    where: { id: utente.id },
+    data: { ruolo: nuovoRuolo },
+  });
+
+  revalidatePath("/admin");
 }

@@ -143,6 +143,7 @@ export function CaroselloAbbonamenti({ piani }: { piani: PianoCarosello[] }) {
               key={piano.id}
               piano={piano}
               indice={indice}
+              attiva={indice === indiceAttivo}
               className="carosello-voce w-[min(82vw,340px)] shrink-0 sm:w-[380px]"
             />
           ))}
@@ -215,10 +216,15 @@ export function CaroselloAbbonamenti({ piani }: { piani: PianoCarosello[] }) {
 function CartaAbbonamento({
   piano,
   indice,
+  attiva,
   className = "",
 }: {
   piano: PianoCarosello;
   indice: number;
+  /** La carta agganciata al centro della fascia visibile: un filo di
+   * distacco sulle altre basta a far percepire il carosello come una
+   * sequenza a fuoco, non una fila piatta di rettangoli identici. */
+  attiva: boolean;
   className?: string;
 }) {
   const icona = ICONE_ROTAZIONE[indice % ICONE_ROTAZIONE.length];
@@ -229,9 +235,9 @@ function CartaAbbonamento({
     // rubando fotogrammi proprio mentre lo scorrimento deve essere fluido.
     <article
       role="listitem"
-      className={`superficie relative flex h-full flex-col p-6 sm:p-7 ${
+      className={`superficie relative flex h-full flex-col p-6 transition-[opacity,transform] duration-300 sm:p-7 ${
         piano.inEvidenza ? "superficie--evidenza" : ""
-      } ${className}`}
+      } ${attiva ? "opacity-100" : "opacity-70 scale-[0.98]"} ${className}`}
     >
       {piano.inEvidenza && (
         <span className="mono absolute right-0 top-0 bg-[var(--accento)] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--accento-testo)]">
