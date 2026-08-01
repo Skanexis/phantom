@@ -17,7 +17,7 @@ export const metadata = {
 export default async function PaginaRichiesta({
   searchParams,
 }: {
-  searchParams: Promise<{ ambito?: string; piano?: string }>;
+  searchParams: Promise<{ ambito?: string; piano?: string; funzione?: string }>;
 }) {
   const parametri = await searchParams;
   const utente = await utenteCorrente();
@@ -27,6 +27,13 @@ export default async function PaginaRichiesta({
     ? await prisma.abbonamento.findUnique({
         where: { slug: parametri.piano },
         select: { nome: true },
+      })
+    : null;
+
+  const automazione = parametri.funzione
+    ? await prisma.automazione.findUnique({
+        where: { slug: parametri.funzione },
+        select: { titolo: true },
       })
     : null;
 
@@ -65,6 +72,15 @@ export default async function PaginaRichiesta({
                   Piano selezionato:{" "}
                 </span>
                 <span className="font-semibold">{piano.nome}</span>
+              </p>
+            )}
+
+            {automazione && (
+              <p className="mono mt-6 border border-[var(--accento)] px-4 py-3 text-[12px]">
+                <span className="text-[var(--testo-tenue)]">
+                  Automazione selezionata:{" "}
+                </span>
+                <span className="font-semibold">{automazione.titolo}</span>
               </p>
             )}
           </Rivela>

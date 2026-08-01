@@ -251,6 +251,51 @@ body {
   scrollbar-width: none;
 }
 
+/* --------------------------------- Superfici morbide --------------------------------- */
+
+/* Raggruppa senza il grigliato pieno: sfondo leggermente diverso invece di
+   un bordo su ogni lato. Riservato ai contesti dove la griglia tecnica
+   appesantirebbe più di quanto struttura (area personale, riepiloghi). */
+.superficie {
+  background: var(--sfondo-alt);
+  border: 1px solid var(--bordo);
+}
+
+/* Varianti di stato: dichiarate dopo .superficie perché la scorciatoia
+   `border` sopra fissa anche il colore su tutti i lati. Un'utility
+   Tailwind border-* applicata sullo stesso elemento perde questo braccio
+   di cascata, quindi lo stato si esprime con classi dedicate. */
+.superficie--evidenza {
+  border-color: var(--accento);
+}
+
+.superficie--allarme {
+  border-color: var(--allarme);
+}
+
+.superficie--attiva {
+  border-left-width: 2px;
+  border-left-color: var(--accento);
+}
+
+/* --------------------------------- Carosello --------------------------------- */
+
+/* Scorrimento orizzontale con aggancio: ogni carta si ferma allineata,
+   niente posizioni intermedie che tagliano una scheda a metà. */
+.carosello {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: var(--carosello-margine, 1rem);
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.carosello-voce {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
 /* Selezione coerente con l'accento. */
 ::selection {
   background: var(--accento);

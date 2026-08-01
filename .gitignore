@@ -52,3 +52,6 @@ next-env.d.ts
 
 # video generati: pesanti e ricreabili con npm run video
 /video/
+
+# anteprime quadrate generate per condivisione rapida
+/anteprime-carte/

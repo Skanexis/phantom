@@ -15,7 +15,15 @@ type Notifica = {
   creatoIl: string;
 };
 
-export function PannelloNotifiche({ iniziali }: { iniziali: Notifica[] }) {
+export function PannelloNotifiche({
+  iniziali,
+  dentroScheda = false,
+}: {
+  iniziali: Notifica[];
+  /** Se dentro una scheda, l'etichetta "Notifiche" è già nella barra: qui
+   * basta il conteggio e l'azione, senza ripetere il titolo. */
+  dentroScheda?: boolean;
+}) {
   const [notifiche, setNotifiche] = useState(iniziali);
   const nonLette = notifiche.filter((n) => !n.letta).length;
   const { ascolta, impostaNonLette } = useFlusso();
@@ -65,12 +73,31 @@ export function PannelloNotifiche({ iniziali }: { iniziali: Notifica[] }) {
     }
   }
 
-  if (notifiche.length === 0) return null;
+  if (notifiche.length === 0) {
+    if (!dentroScheda) return null;
+    return (
+      <p className="mono py-8 text-[12.5px] text-[var(--testo-tenue)]">
+        Nessuna notifica per ora.
+      </p>
+    );
+  }
 
   return (
-    <section className="mt-12 sm:mt-14">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 border-b border-[var(--bordo)] pb-3">
-        <Etichetta>Notifiche {nonLette > 0 && `· ${nonLette} nuove`}</Etichetta>
+    <section className={dentroScheda ? "" : "mt-12 sm:mt-14"}>
+      <div
+        className={`flex flex-wrap items-center justify-between gap-x-4 pb-3 ${
+          dentroScheda ? "" : "border-b border-[var(--bordo)]"
+        }`}
+      >
+        {dentroScheda ? (
+          <span className="mono text-[11px] text-[var(--testo-debole)]">
+            {nonLette > 0
+              ? `${nonLette} da leggere`
+              : "Tutto letto"}
+          </span>
+        ) : (
+          <Etichetta>Notifiche {nonLette > 0 && `· ${nonLette} nuove`}</Etichetta>
+        )}
         {nonLette > 0 && (
           <button
             type="button"

@@ -126,3 +126,8 @@ export function SchedeAdmin({
     </div>
   );
 }
+
+/* Stesso componente, nome neutro per l'uso fuori dal pannello admin
+   (es. area personale): la logica delle schede non ha nulla di
+   specifico per l'admin, solo la prima applicazione è nata lì. */
+export const Schede = SchedeAdmin;

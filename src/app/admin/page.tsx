@@ -11,6 +11,7 @@ import { SezioneRichieste } from "./sezioni/richieste";
 import { SezioneSottoscrizioni } from "./sezioni/sottoscrizioni";
 import { SezioneAbbonamenti } from "./sezioni/abbonamenti";
 import {
+  SezioneAutomazioni,
   SezioneContatti,
   SezioneFaq,
   SezioneServizi,
@@ -60,6 +61,7 @@ export default async function PannelloAdmin() {
     contenuti,
     servizi,
     vantaggi,
+    automazioni,
     faq,
     contatti,
   ] = await Promise.all([
@@ -80,6 +82,7 @@ export default async function PannelloAdmin() {
     prisma.contenutoSito.findMany({ orderBy: { chiave: "asc" } }),
     prisma.servizio.findMany({ orderBy: { ordine: "asc" } }),
     prisma.vantaggio.findMany({ orderBy: { ordine: "asc" } }),
+    prisma.automazione.findMany({ orderBy: { ordine: "asc" } }),
     prisma.faq.findMany({ orderBy: { ordine: "asc" } }),
     prisma.contatto.findMany({ orderBy: { ordine: "asc" } }),
   ]);
@@ -213,6 +216,7 @@ export default async function PannelloAdmin() {
             { id: "abbonamenti", etichetta: "Piani" },
             { id: "servizi", etichetta: "Servizi" },
             { id: "vantaggi", etichetta: "Vantaggi" },
+            { id: "automazioni", etichetta: "Automazioni" },
             { id: "faq", etichetta: "FAQ" },
             { id: "contatti", etichetta: "Contatti" },
             { id: "testi", etichetta: "Testi" },
@@ -234,6 +238,7 @@ export default async function PannelloAdmin() {
             ),
             servizi: <SezioneServizi servizi={servizi} />,
             vantaggi: <SezioneVantaggi vantaggi={vantaggi} />,
+            automazioni: <SezioneAutomazioni automazioni={automazioni} />,
             faq: <SezioneFaq faq={faq} />,
             contatti: <SezioneContatti contatti={contatti} />,
             testi: <SezioneTesti contenuti={contenuti} />,

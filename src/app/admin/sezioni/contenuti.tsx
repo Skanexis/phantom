@@ -10,16 +10,19 @@ import {
 } from "@/components/campi-admin";
 import {
   aggiornaContenuto,
+  eliminaAutomazione,
   eliminaContatto,
   eliminaFaq,
   eliminaServizio,
   eliminaVantaggio,
+  salvaAutomazione,
   salvaContatto,
   salvaFaq,
   salvaServizio,
   salvaVantaggio,
 } from "../azioni";
 import type {
+  Automazione,
   Contatto,
   ContenutoSito,
   Faq,
@@ -179,6 +182,97 @@ export function SezioneVantaggi({ vantaggi }: { vantaggi: Vantaggio[] }) {
           <AreaTesto etichetta="Descrizione" nome="descrizione" />
           <div>
             <BottoneSalva testo="Aggiungi vantaggio" />
+          </div>
+        </form>
+      </BloccoNuovo>
+    </div>
+  );
+}
+
+/** Distingue le funzioni che il cliente sceglie da quella sempre inclusa. */
+function TipoAutomazione({ selezionabile }: { selezionabile: boolean }) {
+  return (
+    <span
+      className={`mono border px-2 py-1 text-[10px] uppercase tracking-[0.1em] ${
+        selezionabile
+          ? "border-[var(--bordo)] text-[var(--testo-tenue)]"
+          : "border-[var(--accento)] text-[var(--accento)]"
+      }`}
+    >
+      {selezionabile ? "Selezionabile" : "Inclusa ovunque"}
+    </span>
+  );
+}
+
+export function SezioneAutomazioni({
+  automazioni,
+}: {
+  automazioni: Automazione[];
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      {automazioni.map((automazione) => (
+        <VoceRichiudibile
+          key={automazione.id}
+          titolo={automazione.titolo}
+          sottotitolo={automazione.descrizione}
+          accessorio={
+            <span className="flex items-center gap-2">
+              <TipoAutomazione selezionabile={automazione.selezionabile} />
+              <Stato attivo={automazione.attivo} />
+            </span>
+          }
+        >
+          <form action={salvaAutomazione} className="flex flex-col gap-4">
+            <input type="hidden" name="id" value={automazione.id} />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Campo
+                etichetta="Titolo"
+                nome="titolo"
+                valore={automazione.titolo}
+                richiesto
+              />
+              <SelettoreIcona nome="icona" valore={automazione.icona} />
+            </div>
+            <AreaTesto
+              etichetta="Descrizione"
+              nome="descrizione"
+              valore={automazione.descrizione}
+            />
+            <Spunta
+              etichetta="Selezionabile nel modulo di richiesta"
+              nome="selezionabile"
+              attivo={automazione.selezionabile}
+            />
+            <CampiOrdineEStato
+              attivo={automazione.attivo}
+              ordine={automazione.ordine}
+            />
+          </form>
+          <form
+            action={eliminaAutomazione}
+            className="mt-5 border-t border-dashed border-[var(--bordo)] pt-4"
+          >
+            <input type="hidden" name="id" value={automazione.id} />
+            <BottoneElimina />
+          </form>
+        </VoceRichiudibile>
+      ))}
+
+      <BloccoNuovo etichetta="Nuova automazione">
+        <form action={salvaAutomazione} className="flex flex-col gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Campo etichetta="Titolo" nome="titolo" richiesto />
+            <SelettoreIcona nome="icona" valore="bolt" />
+          </div>
+          <AreaTesto etichetta="Descrizione" nome="descrizione" />
+          <Spunta
+            etichetta="Selezionabile nel modulo di richiesta"
+            nome="selezionabile"
+            attivo={true}
+          />
+          <div>
+            <BottoneSalva testo="Aggiungi automazione" />
           </div>
         </form>
       </BloccoNuovo>

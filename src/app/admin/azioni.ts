@@ -58,6 +58,15 @@ function rinfresca() {
   revalidatePath("/");
 }
 
+function slugifica(testo: string) {
+  return testo
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 /* ---------------------------------- Abbonamenti --------------------------------- */
 
 export async function aggiornaAbbonamento(dati: FormData) {
@@ -90,14 +99,7 @@ export async function creaAbbonamento(dati: FormData) {
   const nome = stringa(dati, "nome");
   if (!nome) return;
 
-  const slugBase =
-    stringa(dati, "slug") ||
-    nome
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/\p{Diacritic}/gu, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "");
+  const slugBase = stringa(dati, "slug") || slugifica(nome);
 
   // Lo slug è unico: aggiungo un suffisso se già occupato.
   let slug = slugBase || `piano-${Date.now()}`;
@@ -538,6 +540,47 @@ export async function salvaVantaggio(dati: FormData) {
     await prisma.vantaggio.create({ data: { ...valori, attivo: true } });
   }
 
+  rinfresca();
+}
+
+export async function salvaAutomazione(dati: FormData) {
+  await assicuraAdmin();
+
+  const id = stringa(dati, "id");
+  const titolo = stringa(dati, "titolo");
+  if (!titolo) return;
+
+  const valori = {
+    titolo,
+    descrizione: stringa(dati, "descrizione"),
+    icona: stringa(dati, "icona") || "bolt",
+    selezionabile: booleano(dati, "selezionabile"),
+    ordine: numero(dati, "ordine"),
+    attivo: booleano(dati, "attivo"),
+  };
+
+  if (id) {
+    await prisma.automazione.update({ where: { id }, data: valori });
+  } else {
+    // Lo slug si genera dal titolo una sola volta, alla creazione: serve
+    // per collegare il modulo di richiesta alla funzione scelta.
+    let slug = slugifica(titolo) || `automazione-${Date.now()}`;
+    if (await prisma.automazione.findUnique({ where: { slug } })) {
+      slug = `${slug}-${Date.now().toString(36)}`;
+    }
+    await prisma.automazione.create({
+      data: { ...valori, slug, attivo: true },
+    });
+  }
+
+  rinfresca();
+}
+
+export async function eliminaAutomazione(dati: FormData) {
+  await assicuraAdmin();
+  const id = stringa(dati, "id");
+  if (!id) return;
+  await prisma.automazione.delete({ where: { id } });
   rinfresca();
 }
 

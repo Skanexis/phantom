@@ -23,6 +23,7 @@ export function PiedePagina() {
               {[
                 { href: "/#servizi", testo: "Servizi" },
                 { href: "/#abbonamenti", testo: "Abbonamenti" },
+                { href: "/#automazioni", testo: "Automazioni" },
                 { href: "/#faq", testo: "FAQ" },
               ].map((voce) => (
                 <li key={voce.href}>

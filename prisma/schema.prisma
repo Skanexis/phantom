@@ -219,6 +219,23 @@ model Servizio {
   @@index([attivo, ordine])
 }
 
+/// Funzione di automazione proposta in "Automatizzati con noi". Le prime
+/// (selezionabile = true) sono scelte dal cliente nel modulo di richiesta;
+/// quella sulla sicurezza dei dati è inclusa ovunque e non si sceglie.
+model Automazione {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  titolo        String
+  descrizione   String
+  icona         String   @default("bolt")
+  selezionabile Boolean  @default(true)
+  attivo        Boolean  @default(true)
+  ordine        Int      @default(0)
+  aggiornatoIl  DateTime @updatedAt
+
+  @@index([attivo, ordine])
+}
+
 model Vantaggio {
   id           String   @id @default(cuid())
   titolo       String

@@ -20,7 +20,7 @@ export function formattaPrezzo(centesimi: number, valuta = "EUR") {
 }
 
 export async function caricaDatiHomepage() {
-  const [contenuti, servizi, vantaggi, abbonamenti, faq, contatti] =
+  const [contenuti, servizi, vantaggi, abbonamenti, automazioni, faq, contatti] =
     await Promise.all([
       caricaContenuti(),
       prisma.servizio.findMany({
@@ -38,6 +38,10 @@ export async function caricaDatiHomepage() {
           funzionalita: { orderBy: { ordine: "asc" } },
         },
       }),
+      prisma.automazione.findMany({
+        where: { attivo: true },
+        orderBy: { ordine: "asc" },
+      }),
       prisma.faq.findMany({
         where: { attiva: true },
         orderBy: { ordine: "asc" },
@@ -48,5 +52,5 @@ export async function caricaDatiHomepage() {
       }),
     ]);
 
-  return { contenuti, servizi, vantaggi, abbonamenti, faq, contatti };
+  return { contenuti, servizi, vantaggi, abbonamenti, automazioni, faq, contatti };
 }

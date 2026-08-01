@@ -115,6 +115,45 @@ const servizi = [
   },
 ];
 
+const automazioni = [
+  {
+    slug: "richieste-prenotazioni",
+    titolo: "Gestione delle richieste e prenotazioni",
+    descrizione:
+      "Permettiamo in modo facile, organizzato e veloce di gestire, organizzare e programmare tutte le tue richieste e prenotazioni.",
+    icona: "chat",
+    selezionabile: true,
+    ordine: 1,
+  },
+  {
+    slug: "stock-magazzino",
+    titolo: "Gestione dello stock in magazzino",
+    descrizione:
+      "Permettiamo in modo semplice, preciso e in tempo reale di gestire, monitorare e aggiornare tutto lo stock del tuo magazzino, senza più errori di inventario.",
+    icona: "sliders",
+    selezionabile: true,
+    ordine: 2,
+  },
+  {
+    slug: "gestione-consegne",
+    titolo: "Gestione delle tue consegne",
+    descrizione:
+      "Permettiamo in modo rapido, tracciabile e completamente automatizzato di gestire, organizzare e monitorare le tue consegne, con una dashboard operativa dedicata proprio come DHL, UPS e BRT.",
+    icona: "rocket",
+    selezionabile: true,
+    ordine: 3,
+  },
+  {
+    slug: "dati-sensibili",
+    titolo: "Gestione dei dati sensibili",
+    descrizione:
+      "Ogni automazione che realizziamo include protezione avanzata dei dati sensibili: accessi controllati, crittografia e backup automatici, per la massima sicurezza dei tuoi dati e di quelli dei tuoi clienti.",
+    icona: "shield",
+    selezionabile: false,
+    ordine: 4,
+  },
+];
+
 const vantaggi = [
   {
     titolo: "Consegna rapida",
@@ -224,6 +263,14 @@ const contenuti = [
     valore: "Soluzioni pronte all'uso, attive da subito e senza vincoli.",
     gruppo: "abbonamenti",
   },
+  { chiave: "automazioni.titolo", valore: "Automatizzati con noi", gruppo: "automazioni" },
+  { chiave: "automazioni.kicker", valore: "Perché noi?", gruppo: "automazioni" },
+  {
+    chiave: "automazioni.tagline",
+    valore: "Automatizziamo la tua azienda in ogni settore al meglio!",
+    gruppo: "automazioni",
+  },
+  { chiave: "automazioni.cta", valore: "Richiedi un'automazione", gruppo: "automazioni" },
   { chiave: "sumisura.titolo", valore: "Sviluppo su misura", gruppo: "sumisura" },
   {
     chiave: "sumisura.sottotitolo",
@@ -255,6 +302,14 @@ async function main() {
         testo,
         ordine: indice + 1,
       })),
+    });
+  }
+
+  for (const automazione of automazioni) {
+    await prisma.automazione.upsert({
+      where: { slug: automazione.slug },
+      update: automazione,
+      create: automazione,
     });
   }
 

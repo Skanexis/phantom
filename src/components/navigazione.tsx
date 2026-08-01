@@ -10,8 +10,9 @@ import { InterruttoreTema } from "@/components/interruttore-tema";
 const voci = [
   { href: "/#servizi", etichetta: "Servizi", codice: "02" },
   { href: "/#abbonamenti", etichetta: "Abbonamenti", codice: "04" },
-  { href: "/#su-misura", etichetta: "Su misura", codice: "05" },
-  { href: "/#faq", etichetta: "FAQ", codice: "06" },
+  { href: "/#automazioni", etichetta: "Automazioni", codice: "05" },
+  { href: "/#su-misura", etichetta: "Su misura", codice: "06" },
+  { href: "/#faq", etichetta: "FAQ", codice: "07" },
 ];
 
 export function Navigazione() {
