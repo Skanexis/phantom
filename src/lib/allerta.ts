@@ -25,8 +25,19 @@ import { prelevaAllerte, vigila, type Allerta } from "@/lib/sorveglianza";
  */
 const VALIDITA_DESTINATARI_MS = 5 * 60_000;
 
-/** Quanti avvisi entrano in un messaggio: oltre, si riassume. */
-const MAX_IN_MESSAGGIO = 8;
+/**
+ * Quanti avvisi entrano in un messaggio: oltre, si riassume.
+ *
+ * Alzato da otto a venti quando le sonde sono entrate nel canale: ogni
+ * sondaggio produce ora un avviso proprio, senza raffreddamento, e con il
+ * tetto precedente una scansione di routine avrebbe riempito il messaggio
+ * di «…e altri N» facendo sparire dietro quel numero gli avvisi che
+ * contano. Il limite vero non è qui ma dall'altra parte: Telegram accetta
+ * un ritmo finito di messaggi verso la stessa chat, e un messaggio ogni
+ * venti secondi con venti voci dentro è il modo di restarci sotto senza
+ * perdere nulla.
+ */
+const MAX_IN_MESSAGGIO = 20;
 
 type Cache = { chatId: string[]; scadenza: number };
 

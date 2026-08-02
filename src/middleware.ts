@@ -66,6 +66,12 @@ const PERCORSI_LIBERI = ["/manutenzione", "/api/gate", "/api/telegram/webhook"];
 const ROTTA_WEBHOOK = "/api/telegram/webhook";
 
 /**
+ * Il ricorso: la sola rotta che chi è escluso deve poter ancora
+ * raggiungere. Vedi il commento nel corpo del middleware.
+ */
+const ROTTA_RICORSO = "/api/ricorso";
+
+/**
  * Sondaggi automatici: scanner che cercano file di configurazione, backup
  * e pannelli di altri CMS. Non esiste nulla di tutto questo, quindi Next
  * risponderebbe 404 senza danni — ma ogni tentativo costa una
@@ -131,6 +137,18 @@ export async function middleware(richiesta: NextRequest) {
   // arretrato, e finirebbe per sembrare l'attaccante più insistente del
   // pannello. Si difende con il segreto condiviso.
   const eWebhook = pathname === ROTTA_WEBHOOK;
+
+  /**
+   * Il ricorso deve restare raggiungibile da chi è bloccato.
+   *
+   * È l'unica rotta con questa proprietà, ed è ovvia solo a dirla: una
+   * schermata che offre di segnalare un errore, servita da un perimetro che
+   * respinge tutto quello che arriva da quell'indirizzo, offrirebbe un
+   * pulsante che non può funzionare. Il resto delle difese continua a
+   * valere — frequenza, origine, firme d'attacco — e la rotta ha un limite
+   * suo, molto stretto: vedi `api/ricorso/route.ts`.
+   */
+  const eRicorso = pathname === ROTTA_RICORSO;
 
   /**
    * Sessione letta una volta sola, e solo se il cookie c'è.
@@ -305,7 +323,7 @@ export async function middleware(richiesta: NextRequest) {
    * non è un salvacondotto, e chi ha deciso il blocco lo ha deciso proprio
    * per quello.
    */
-  if (!eWebhook) {
+  if (!eWebhook && !eRicorso) {
     const esclusione = valutaEsclusione({
       ip,
       dispositivo: dispositivoNoto,

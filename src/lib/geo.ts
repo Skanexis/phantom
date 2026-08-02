@@ -45,19 +45,22 @@ export function paeseDaIntestazioni(intestazioni: Headers): string | null {
 }
 
 /**
- * Bandiera da codice ISO: due lettere diventano due indicatori regionali.
- * Nessuna tabella da mantenere — è una traslazione aritmetica, e funziona
- * per ogni paese esistente e futuro.
+ * Sigla del paese, in due lettere. Non una bandiera.
+ *
+ * Le bandiere emoji sembravano la scelta ovvia e sono risultate la
+ * peggiore per tre motivi che si vedono solo all'uso. Sono minuscole in un
+ * elenco a corpo dieci; su Windows non esistono affatto — il sistema non
+ * ha i glifi e disegna due lettere in un riquadro, o niente; e soprattutto
+ * quando il paese è ignoto la bandiera bianca è indistinguibile da una
+ * bandiera vera vista di sfuggita, quindi il pannello sembra funzionare
+ * mentre non sta dicendo nulla.
+ *
+ * Due lettere si leggono ovunque, si allineano in colonna e quando manca
+ * il dato dicono "??", che è un'informazione invece di un'ambiguità.
  */
-export function bandiera(codice: string | null | undefined): string {
-  if (!codice || !/^[A-Z]{2}$/.test(codice)) return "🏳";
-
-  // "T1" di Cloudflare è Tor: non ha bandiera, ma merita un segno suo.
-  const base = 0x1f1e6; // 🇦
-  return String.fromCodePoint(
-    base + (codice.charCodeAt(0) - 65),
-    base + (codice.charCodeAt(1) - 65),
-  );
+export function siglaPaese(codice: string | null | undefined): string {
+  if (!codice || !/^[A-Z]{2}$/.test(codice)) return "??";
+  return codice;
 }
 
 /**

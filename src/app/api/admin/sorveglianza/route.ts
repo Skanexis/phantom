@@ -151,6 +151,74 @@ async function leggiNomi(ids: string[]): Promise<Record<string, string>> {
   }
 }
 
+/**
+ * Provvedimenti in vigore e ricorsi aperti.
+ *
+ * A differenza del carico applicativo, questi si leggono a ogni giro senza
+ * memoria, ed è deliberato: sono la conferma visibile di un'azione appena
+ * compiuta. Un pannello che mostrasse l'elenco di mezzo minuto fa
+ * riprodurrebbe esattamente il difetto che questa sezione esiste per
+ * chiudere — si preme «escludi», non cambia nulla, e non si capisce se ha
+ * funzionato. Sono tre letture su tabelle di poche decine di righe, tutte
+ * su indice, e la scheda la apre solo chi ha ruolo DEVELOPER.
+ */
+async function leggiProvvedimenti() {
+  const adesso = new Date();
+  const nonScaduto = { OR: [{ scadeIl: null }, { scadeIl: { gt: adesso } }] };
+
+  try {
+    const [bandi, eccezioni, ricorsiAperti] = await Promise.all([
+      prisma.bando.findMany({
+        where: nonScaduto,
+        orderBy: { creatoIl: "desc" },
+        take: 200,
+        select: {
+          id: true,
+          tipo: true,
+          valore: true,
+          motivo: true,
+          creatoIl: true,
+          scadeIl: true,
+        },
+      }),
+      prisma.eccezioneRete.findMany({
+        where: nonScaduto,
+        orderBy: { creatoIl: "desc" },
+        take: 200,
+        select: {
+          id: true,
+          ip: true,
+          motivo: true,
+          creatoIl: true,
+          scadeIl: true,
+        },
+      }),
+      prisma.ricorso.count({ where: { stato: "APERTO" } }),
+    ]);
+
+    return {
+      // Le date attraversano il confine server/client: si passano come
+      // millisecondi invece che come Date, che finirebbero comunque
+      // serializzate in stringa senza che i tipi lo dicano.
+      bandi: bandi.map((voce) => ({
+        ...voce,
+        creatoIl: voce.creatoIl.getTime(),
+        scadeIl: voce.scadeIl ? voce.scadeIl.getTime() : null,
+      })),
+      eccezioni: eccezioni.map((voce) => ({
+        ...voce,
+        creatoIl: voce.creatoIl.getTime(),
+        scadeIl: voce.scadeIl ? voce.scadeIl.getTime() : null,
+      })),
+      ricorsiAperti,
+    };
+  } catch {
+    // Il database irraggiungibile non deve far sparire il pannello: è
+    // proprio il momento in cui serve guardarlo.
+    return { bandi: [], eccezioni: [], ricorsiAperti: 0 };
+  }
+}
+
 export async function GET() {
   const sviluppatore = await richiediSviluppatore();
   if (!sviluppatore) {
@@ -189,6 +257,7 @@ export async function GET() {
     nomi: await leggiNomi([...ids]),
     rete: await classificaIndirizzi(daClassificare),
     elenchi: statoElenchi(),
+    provvedimenti: await leggiProvvedimenti(),
     flussi: statoFlussi(),
     carico: await leggiCarico(),
     processo: {

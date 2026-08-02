@@ -30,6 +30,8 @@
  * successo, altrimenti l'attacco rallenta il server nel misurarlo.
  */
 
+import { sottorete } from "@/lib/rete";
+
 export type TipoEvento =
   /** Percorso da scanner: /.env, /wp-admin, /phpmyadmin. */
   | "sonda"
@@ -257,6 +259,10 @@ type Deposito = {
   minuti: Map<number, Minuto>;
   quarantena: Map<string, Quarantena>;
   totali: Totali;
+  /** Righe in attesa di finire nell'archivio a database. */
+  coda: RigaRegistro[];
+  /** Righe scartate perché la coda era piena: si dichiara, non si nasconde. */
+  codaPersa: number;
   allerte: Allerta[];
   /** Ultima spedizione per chiave d'avviso: alimenta il raffreddamento. */
   raffreddamento: Map<string, number>;
@@ -282,12 +288,32 @@ const MAX_REGISTRO = 1500;
  * giro di aggiornamento costerebbe più della sorveglianza stessa.
  */
 const REGISTRO_IN_VETRINA = 400;
+/**
+ * Righe in attesa di essere scritte nell'archivio.
+ *
+ * Dimensionato sul ritmo di svuotamento: il compito periodico gira ogni
+ * venti secondi e scrive a lotti, quindi cinquemila posti coprono
+ * duecentocinquanta richieste al secondo sostenute — molto oltre il
+ * traffico di questo sito — e reggono comunque un paio di giri saltati per
+ * un database lento. Oltre, si scarta dalla testa e si conta.
+ */
+const MAX_CODA = 5000;
 /** Account riconosciuti tenuti in memoria. */
 const MAX_UTENTI = 2000;
 /** Indirizzi ricordati per account: bastano a vedere uno spostamento. */
 const MAX_IP_PER_UTENTE = 8;
-/** Avvisi in attesa di spedizione. Oltre, si contano soltanto. */
-const MAX_ALLERTE = 60;
+/**
+ * Avvisi in attesa di spedizione. Oltre, si contano soltanto.
+ *
+ * Alzato da sessanta a duecento con l'ingresso delle sonde nel canale: ogni
+ * sondaggio accoda un avviso senza raffreddamento, e la coda si svuota ogni
+ * venti secondi — sessanta posti significavano scartarne una parte a ogni
+ * scansione un po' vivace. Duecento voci da poche centinaia di byte sono
+ * qualche decina di kilobyte: il tetto resta, perché una coda senza tetto è
+ * il solito modo di far crescere la memoria bussando, ma è collocato dove
+ * scatta solo sotto una raffica vera.
+ */
+const MAX_ALLERTE = 200;
 /** Indirizzi tracciati insieme. Il tetto è ciò che rende la mappa sicura. */
 const MAX_IP = 5000;
 /** Indirizzi con eventi tenuti sotto osservazione. */
@@ -337,6 +363,8 @@ function deposito(): Deposito {
       perMetodo: {},
       perLivello: { info: 0, avviso: 0, allarme: 0, critico: 0 },
     },
+    coda: [],
+    codaPersa: 0,
     allerte: [],
     raffreddamento: new Map(),
     allertePerse: 0,
@@ -660,7 +688,58 @@ export function annota(riga: {
     dep.registro.splice(0, Math.ceil(MAX_REGISTRO * 0.25));
   }
 
+  /**
+   * Copia in coda per l'archivio a database.
+   *
+   * Qui il costo è un `push`, e non un byte di più: nessuna interrogazione,
+   * nessuna attesa di rete, nessun import di Prisma in un modulo che il
+   * middleware carica su ogni richiesta. A svuotare la coda è il compito
+   * periodico (vedi `registro-db.ts`), che gira fuori da qualunque
+   * richiesta e può permettersi di parlare col database.
+   *
+   * Il tetto vale come per tutto il resto del modulo, e il verso in cui si
+   * scarta è una scelta: quando la coda è piena cadono le righe **più
+   * vecchie**, perché quelle sono già visibili nella console dal vivo,
+   * mentre perdere le ultime significherebbe perdere proprio ciò che sta
+   * accadendo. Le perdite si contano e il pannello le dichiara: una coda
+   * che scarta in silenzio è peggio di una coda che si ferma.
+   */
+  dep.coda.push(voce);
+  if (dep.coda.length > MAX_CODA) {
+    dep.codaPersa += dep.coda.length - MAX_CODA;
+    dep.coda.splice(0, dep.coda.length - MAX_CODA);
+  }
+
   return voce;
+}
+
+/**
+ * Preleva fino a `quante` righe dalla coda di persistenza.
+ *
+ * Le righe escono dalla coda solo qui, e ci rientrano se la scrittura
+ * fallisce (vedi `rimettiInCoda`): un guasto momentaneo del database non
+ * deve tradursi in un buco nell'archivio.
+ */
+export function prelevaDaCoda(quante: number): RigaRegistro[] {
+  const dep = deposito();
+  if (dep.coda.length === 0) return [];
+  return dep.coda.splice(0, quante);
+}
+
+/** Rimette in testa le righe che non si è riusciti a scrivere. */
+export function rimettiInCoda(righe: RigaRegistro[]) {
+  const dep = deposito();
+  dep.coda.unshift(...righe);
+  if (dep.coda.length > MAX_CODA) {
+    dep.codaPersa += dep.coda.length - MAX_CODA;
+    dep.coda.splice(0, dep.coda.length - MAX_CODA);
+  }
+}
+
+/** Quanto è arretrata la scrittura, e quanto si è perso per strada. */
+export function statoCoda() {
+  const dep = deposito();
+  return { inCoda: dep.coda.length, perse: dep.codaPersa };
 }
 
 /* -------------------------------- Avvisi --------------------------------- */
@@ -686,16 +765,29 @@ export function accodaAllerta(allerta: {
   const adesso = Date.now();
   const attesa = (allerta.raffreddamentoMinuti ?? 10) * 60_000;
 
-  const ultimo = dep.raffreddamento.get(allerta.chiave) ?? 0;
-  if (adesso - ultimo < attesa) return false;
-  dep.raffreddamento.set(allerta.chiave, adesso);
+  /**
+   * Con attesa zero non si passa affatto dalla mappa.
+   *
+   * Chi chiede di non essere raffreddato — le sonde — usa una chiave unica
+   * per evento, altrimenti il primo sondaggio zittirebbe i successivi. Ma
+   * una chiave unica per evento scritta in mappa significa una voce nuova a
+   * ogni colpo, e la potatura qui sotto toglie solo ciò che ha più di
+   * un'ora: sotto una scansione le voci sono tutte fresche, non ne
+   * cadrebbe nessuna, e la mappa crescerebbe finché c'è memoria. Cioè il
+   * modo di far cadere il processo passando dalla porta che lo avvisa.
+   */
+  if (attesa > 0) {
+    const ultimo = dep.raffreddamento.get(allerta.chiave) ?? 0;
+    if (adesso - ultimo < attesa) return false;
+    dep.raffreddamento.set(allerta.chiave, adesso);
 
-  // La mappa del raffreddamento ha una chiave per IP: senza tetto sarebbe
-  // il solito modo per farla crescere all'infinito bussando da indirizzi
-  // sempre diversi.
-  if (dep.raffreddamento.size > 2000) {
-    for (const [chiave, quando] of dep.raffreddamento) {
-      if (adesso - quando > 60 * 60_000) dep.raffreddamento.delete(chiave);
+    // La mappa del raffreddamento ha una chiave per IP: senza tetto sarebbe
+    // il solito modo per farla crescere all'infinito bussando da indirizzi
+    // sempre diversi.
+    if (dep.raffreddamento.size > 2000) {
+      for (const [chiave, quando] of dep.raffreddamento) {
+        if (adesso - quando > 60 * 60_000) dep.raffreddamento.delete(chiave);
+      }
     }
   }
 
@@ -844,17 +936,39 @@ export function segnala(evento: {
   // Gli eventi che pesano davvero partono subito verso Telegram, senza
   // aspettare che l'indirizzo accumuli abbastanza colpi per la quarantena:
   // un segreto del webhook sbagliato è già di per sé una notizia.
-  if (LIVELLO_EVENTO[evento.tipo] === "critico") {
+  //
+  // Le sonde sono l'eccezione, ed è una scelta esplicita di chi gestisce il
+  // sito: per gravità sono l'evento più basso della scala — rumore di fondo
+  // di internet, uno scanner che prova /wp-admin su qualunque indirizzo —
+  // ma vanno segnalate tutte, una per una. Il raffreddamento è quindi
+  // azzerato e la chiave resa unica dal numero di sequenza, così due sonde
+  // dallo stesso indirizzo non si annullano a vicenda.
+  //
+  // Il livello resta "info" e non sale: quella scala colora la console e
+  // alimenta il contatore dei critici, e promuovere le sonde tingerebbe di
+  // rosso l'intero registro nascondendo ciò che conta davvero. Decidere di
+  // svegliare qualcuno e giudicare quanto è grave una cosa sono due
+  // valutazioni diverse, e qui restano separate.
+  const eSonda = evento.tipo === "sonda";
+
+  if (LIVELLO_EVENTO[evento.tipo] === "critico" || eSonda) {
     accodaAllerta({
-      gravita: "alta",
+      gravita: eSonda ? "media" : "alta",
       titolo: `${ETICHETTA_EVENTO[evento.tipo]} da ${evento.ip}`,
       righe: [
         `${evento.metodo ?? ""} ${ripulisci(evento.percorso, 120)}`.trim(),
         evento.dettaglio ? ripulisci(evento.dettaglio, 160) : "",
+        // La rete accanto all'indirizzo: le sonde arrivano quasi sempre da
+        // più indirizzi vicini, e chi legge l'avviso sul telefono deve
+        // poter decidere il bando della sottorete senza aprire il pannello.
+        `rete ${sottorete(evento.ip) ?? "non determinabile"}`,
+        scheda?.agente ? `agente: ${scheda.agente}` : "",
         identita ? `account telegram ${identita.telegramId}` : "senza account",
       ].filter(Boolean),
-      chiave: `evento:${evento.tipo}:${evento.ip}`,
-      raffreddamentoMinuti: 10,
+      chiave: eSonda
+        ? `sonda:${evento.ip}:${dep.seq}`
+        : `evento:${evento.tipo}:${evento.ip}`,
+      raffreddamentoMinuti: eSonda ? 0 : 10,
     });
   }
 

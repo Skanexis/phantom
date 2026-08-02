@@ -6,6 +6,7 @@ import { Campo, AreaTesto, classiSelettore } from "@/components/campi-admin";
 import { BadgeRuolo } from "@/components/badge-ruolo";
 import { Etichetta, RigaDato } from "@/components/ui";
 import { Icone } from "@/components/icone";
+import { ModuloAzione } from "@/components/modulo-azione";
 import {
   cambiaBloccoUtente,
   chiudiSegnalazione,
@@ -13,7 +14,14 @@ import {
   revocaBando,
   segnalaUtente,
 } from "../azioni";
-import type { Ruolo } from "@/generated/prisma/client";
+import type { Ruolo, TipoBando } from "@/generated/prisma/client";
+
+/** Sigla breve del tipo, per stare in una riga di elenco. */
+const ETICHETTA_BANDO: Record<TipoBando, string> = {
+  IP: "IP",
+  SOTTORETE: "RETE",
+  DISPOSITIVO: "DISP",
+};
 
 /**
  * Anagrafica dei clienti, con tre livelli di potere sulla stessa scheda.
@@ -76,7 +84,7 @@ export type SegnalazioneAdmin = {
 
 export type BandoAdmin = {
   id: string;
-  tipo: string;
+  tipo: TipoBando;
   valore: string;
   motivo: string;
   creatoIl: string;
@@ -188,41 +196,55 @@ export function SezioneUtenti({
 
       {/* ------------------------- Bandi di rete -------------------------- */}
       {puoBandire && (
-        <BloccoNuovo etichetta="Escludi un indirizzo o un dispositivo">
-          <form action={creaBando} className="flex flex-col gap-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="flex flex-col gap-2">
-                <span className="mono text-[11px] tracking-[0.14em] text-[var(--testo-tenue)] uppercase sm:text-[10px]">
-                  Tipo
-                </span>
-                <select name="tipo" className={classiSelettore} defaultValue="IP">
-                  <option value="IP">Indirizzo IP</option>
-                  <option value="DISPOSITIVO">Dispositivo</option>
-                </select>
-              </label>
-              <Campo
-                etichetta="Valore"
-                nome="valore"
-                richiesto
-                placeholder="203.0.113.7 oppure l'identificativo del dispositivo"
-              />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Campo etichetta="Motivo" nome="motivo" placeholder="Perché" />
-              <Campo
-                etichetta="Giorni (0 = permanente)"
-                nome="giorni"
-                tipo="number"
-                valore="0"
-              />
-            </div>
-            <button
-              type="submit"
-              className="mono spinta min-h-11 self-start border border-[var(--allarme)] px-5 text-[11px] tracking-[0.12em] text-[var(--allarme)] uppercase"
-            >
-              Bandisci
-            </button>
-          </form>
+        <BloccoNuovo etichetta="Escludi un indirizzo, una rete o un dispositivo">
+          <ModuloAzione azione={creaBando} className="flex flex-col gap-4">
+            {({ inCorso }) => (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="flex flex-col gap-2">
+                    <span className="mono text-[11px] tracking-[0.14em] text-[var(--testo-tenue)] uppercase sm:text-[10px]">
+                      Tipo
+                    </span>
+                    <select
+                      name="tipo"
+                      className={classiSelettore}
+                      defaultValue="IP"
+                    >
+                      <option value="IP">Indirizzo IP</option>
+                      <option value="SOTTORETE">Rete (CIDR)</option>
+                      <option value="DISPOSITIVO">Dispositivo</option>
+                    </select>
+                  </label>
+                  <Campo
+                    etichetta="Valore"
+                    nome="valore"
+                    richiesto
+                    placeholder="203.0.113.7 · 203.0.113.0/24 · identificativo"
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Campo
+                    etichetta="Motivo (lo legge anche chi è bloccato)"
+                    nome="motivo"
+                    placeholder="Perché"
+                  />
+                  <Campo
+                    etichetta="Giorni (0 = permanente)"
+                    nome="giorni"
+                    tipo="number"
+                    valore="0"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={inCorso}
+                  className="mono spinta min-h-11 self-start border border-[var(--allarme)] px-5 text-[11px] tracking-[0.12em] text-[var(--allarme)] uppercase disabled:opacity-50"
+                >
+                  {inCorso ? "Applico…" : "Bandisci"}
+                </button>
+              </>
+            )}
+          </ModuloAzione>
 
           {bandi.length > 0 && (
             <div className="mt-5 divide-y divide-[var(--bordo)] border-t border-[var(--bordo)]">
@@ -232,9 +254,9 @@ export function SezioneUtenti({
                   className="flex flex-wrap items-center justify-between gap-3 py-3"
                 >
                   <div className="min-w-0">
-                    <p className="mono truncate text-[12.5px]">
+                    <p className="mono text-[12.5px] break-all">
                       <span className="text-[var(--testo-debole)]">
-                        {bando.tipo === "IP" ? "IP" : "DISP"}
+                        {ETICHETTA_BANDO[bando.tipo] ?? bando.tipo}
                       </span>{" "}
                       {bando.valore}
                     </p>
@@ -245,15 +267,23 @@ export function SezioneUtenti({
                         : "permanente"}
                     </p>
                   </div>
-                  <form action={revocaBando} className="shrink-0">
-                    <input type="hidden" name="id" value={bando.id} />
-                    <button
-                      type="submit"
-                      className="mono spinta min-h-11 border border-[var(--bordo)] px-4 text-[11px] tracking-[0.12em] uppercase"
-                    >
-                      Revoca
-                    </button>
-                  </form>
+                  <ModuloAzione
+                    azione={revocaBando}
+                    className="flex shrink-0 flex-col gap-2"
+                  >
+                    {({ inCorso }) => (
+                      <>
+                        <input type="hidden" name="id" value={bando.id} />
+                        <button
+                          type="submit"
+                          disabled={inCorso}
+                          className="mono spinta min-h-11 border border-[var(--bordo)] px-4 text-[11px] tracking-[0.12em] uppercase disabled:opacity-50"
+                        >
+                          {inCorso ? "…" : "Revoca"}
+                        </button>
+                      </>
+                    )}
+                  </ModuloAzione>
                 </div>
               ))}
             </div>

@@ -25,6 +25,7 @@ export async function register() {
   // fallire prima ancora di arrivare al controllo qui sopra.
   const { giroDiControllo } = await import("@/lib/allerta");
   const { sincronizzaBandi } = await import("@/lib/bandi-db");
+  const { scaricaRegistro, potaRegistro } = await import("@/lib/registro-db");
 
   // Subito, non al primo intervallo: fra l'avvio del processo e i venti
   // secondi successivi il perimetro avrebbe gli elenchi vuoti, cioè un
@@ -34,6 +35,11 @@ export async function register() {
   const timer = setInterval(() => {
     void giroDiControllo();
     void sincronizzaBandi();
+    // L'archivio delle richieste: la coda in memoria si svuota qui, fuori
+    // da qualunque richiesta dell'utente. La potatura decide da sé se è
+    // ora — non gira davvero a ogni giro.
+    void scaricaRegistro();
+    void potaRegistro();
   }, INTERVALLO_MS);
 
   // Senza questo il timer tiene vivo il ciclo di eventi e il processo non

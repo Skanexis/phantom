@@ -136,6 +136,11 @@ model Segnalazione {
 
 enum TipoBando {
   IP
+  /// Intervallo di indirizzi in forma CIDR, già normalizzato al prefisso con
+  /// cui è stato deciso: la verifica nel perimetro è una lettura da un
+  /// insieme, non un confronto con ogni provvedimento in elenco. I prefissi
+  /// ammessi sono un elenco chiuso (vedi PREFISSI_SOTTORETE in lib/rete.ts).
+  SOTTORETE
   DISPOSITIVO
 }
 
@@ -156,6 +161,10 @@ model Bando {
   id       String    @id @default(cuid())
   tipo     TipoBando
   valore   String
+  /// Attenzione: questo testo lo legge anche chi è stato bloccato, sulla
+  /// schermata /bloccato. Non è più una nota interna fra chi decide — deve
+  /// spiegare il provvedimento a chi lo subisce, senza raccontare come è
+  /// stato scoperto un abuso.
   motivo   String
   creatoIl DateTime  @default(now())
   /// Null significa permanente.
@@ -164,6 +173,116 @@ model Bando {
 
   @@unique([tipo, valore])
   @@index([tipo])
+}
+
+/// Indirizzo esentato dal bando della propria sottorete.
+///
+/// Nasce quasi sempre da un ricorso accolto: un attacco parte da una rete,
+/// la rete viene bandita, e dietro quegli stessi indirizzi c'era anche
+/// qualcuno che non c'entrava nulla. Revocare il bando riaprirebbe la porta
+/// all'attacco; questa riga corregge il singolo caso lasciando in piedi il
+/// provvedimento.
+model EccezioneRete {
+  id        String    @id @default(cuid())
+  ip        String    @unique
+  motivo    String
+  creatoIl  DateTime  @default(now())
+  /// Null significa permanente.
+  scadeIl   DateTime?
+  autoreId  String?
+  /// Il ricorso da cui è nata, quando c'è.
+  ricorsoId String?
+}
+
+enum StatoRicorso {
+  APERTO
+  ACCOLTO
+  RESPINTO
+}
+
+/// Richiesta di riesame inviata da chi è stato bloccato.
+///
+/// È l'unica cosa che una persona bloccata può fare sul sito, ed è
+/// deliberato: il bando di rete colpisce per intervallo, quindi produce
+/// falsi positivi per costruzione, e senza un canale di ritorno l'unico
+/// modo di accorgersene sarebbe che qualcuno riesca a scrivere altrove.
+///
+/// I dati tecnici (indirizzo, sottorete, marcatore, agente) si registrano
+/// al momento dell'invio e non si chiedono a chi scrive: sono già noti al
+/// server, e farli digitare produrrebbe solo errori.
+model Ricorso {
+  id          String       @id @default(cuid())
+  /// Cosa lo aveva bloccato: ip, sottorete, dispositivo, account.
+  causa       String
+  /// Il valore che aveva fatto scattare il blocco.
+  valore      String
+  ip          String
+  sottorete   String?
+  dispositivo String?
+  utenteId    String?
+  messaggio   String
+  /// Come farsi ricontattare, se lo indica. Facoltativo di proposito.
+  contatto    String?
+  agente      String
+  stato       StatoRicorso @default(APERTO)
+  creatoIl    DateTime     @default(now())
+  decisoIl    DateTime?
+  decisoDaId  String?
+  /// Nota di chi ha deciso. Interna, non mostrata a chi ha scritto.
+  nota        String?
+
+  @@index([stato, creatoIl])
+  @@index([ip])
+}
+
+/// Archivio duraturo delle richieste, per la scheda Logs.
+///
+/// La sorveglianza dal vivo resta in memoria e si azzera a ogni riavvio: è
+/// una finestra sul presente, e va bene così. Questa tabella risponde
+/// all'altra domanda, quella che la memoria non può reggere — cosa faceva
+/// quell'indirizzo tre settimane fa.
+///
+/// Non si scrive dentro una richiesta. Le righe passano da una coda in
+/// memoria che un compito periodico svuota a lotti (vedi lib/registro-db.ts):
+/// un INSERT per richiesta trasformerebbe il traffico ostile in carico sul
+/// database, cioè renderebbe l'archivio complice del problema che deve
+/// documentare.
+///
+/// Nessuna chiave esterna verso Utente: il registro deve sopravvivere alla
+/// cancellazione di un account, e un vincolo costerebbe una verifica a ogni
+/// riga inserita.
+model RegistroRichiesta {
+  /// Int e non BigInt: due miliardi di righe sono ordini di grandezza oltre
+  /// l'orizzonte di questo sito, e BigInt esplode in JSON.stringify — cioè
+  /// esattamente dove finisce, nella risposta della rotta del pannello.
+  id          Int      @id @default(autoincrement())
+  quando      DateTime @default(now())
+  livello     String
+  metodo      String
+  percorso    String
+  ip          String
+  /// Precalcolata alla scrittura: filtrare per rete è una domanda frequente,
+  /// e ricavarla in SQL su milioni di righe impedirebbe di usare un indice.
+  sottorete   String?
+  paese       String?
+  utenteId    String?
+  telegramId  String?
+  ruolo       String?
+  dispositivo String?
+  agente      String
+  esito       String
+  stato       Int?
+  tipo        String?
+  /// Unite in una stringa: è testo da mostrare, non dati da interrogare.
+  motivi      String?
+  durataMs    Int      @default(0)
+
+  @@index([quando])
+  @@index([ip, quando])
+  @@index([livello, quando])
+  @@index([utenteId, quando])
+  @@index([sottorete, quando])
+  @@index([percorso, quando])
 }
 
 /// Piani di abbonamento, interamente editabili dal pannello admin.

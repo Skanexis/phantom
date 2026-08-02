@@ -1,10 +1,15 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Icone } from "@/components/icone";
-import { bandiera, nomePaese } from "@/lib/geo";
 import type { SchedaRete } from "@/lib/rete-inversa";
 import type { LivelloRiga, RigaRegistro, TipoEvento } from "@/lib/sorveglianza";
+import {
+  ETICHETTA_LIVELLO,
+  LIVELLI,
+  PESO_LIVELLO,
+  RigaConsole,
+  type BersaglioBando,
+} from "./riga-registro";
 
 /**
  * Console del traffico: una riga per richiesta, con il livello davanti.
@@ -20,54 +25,9 @@ import type { LivelloRiga, RigaRegistro, TipoEvento } from "@/lib/sorveglianza";
  * ultime quattrocento righe), non su tutto il deposito: cercare a monte
  * significherebbe spedire al pannello, a ogni giro di aggiornamento, un
  * archivio che serve tutto intero solo nel momento in cui lo si interroga.
- * La finestra è dichiarata sotto l'elenco, non lasciata indovinare.
+ * La finestra è dichiarata sotto l'elenco, non lasciata indovinare — e per
+ * andare più indietro c'è la scheda Logs, che interroga il database.
  */
-
-const LIVELLI: LivelloRiga[] = ["critico", "allarme", "avviso", "info"];
-
-const ETICHETTA_LIVELLO: Record<LivelloRiga, string> = {
-  critico: "CRIT",
-  allarme: "ALERT",
-  avviso: "WARN",
-  info: "INFO",
-};
-
-/**
- * Il colore è l'unica cosa che si legge davvero scorrendo un elenco lungo:
- * il testo lo si guarda solo dopo essersi fermati su una riga.
- */
-const COLORE_LIVELLO: Record<LivelloRiga, string> = {
-  critico: "bg-[var(--allarme)] text-white",
-  allarme: "bg-transparent text-[var(--allarme)] border-[var(--allarme)]",
-  avviso: "bg-transparent text-[var(--accento)] border-[var(--accento)]",
-  info: "bg-transparent text-[var(--testo-debole)] border-[var(--bordo)]",
-};
-
-/** I metodi hanno un colore stabile: si riconoscono senza leggerli. */
-const COLORE_METODO: Record<string, string> = {
-  GET: "text-[var(--info)]",
-  HEAD: "text-[var(--info)]",
-  POST: "text-[var(--ok)]",
-  PATCH: "text-[var(--accento)]",
-  PUT: "text-[var(--accento)]",
-  DELETE: "text-[var(--allarme)]",
-  OPTIONS: "text-[var(--testo-debole)]",
-};
-
-function coloreStato(stato: number | null) {
-  if (stato === null) return "text-[var(--testo-debole)]";
-  if (stato >= 500) return "text-[var(--allarme)]";
-  if (stato >= 400) return "text-[var(--accento)]";
-  return "text-[var(--ok)]";
-}
-
-function orario(quando: number) {
-  return new Date(quando).toLocaleTimeString("it-IT", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
 
 type Ordine =
   | "recenti"
@@ -86,39 +46,8 @@ const ETICHETTA_ORDINE: Record<Ordine, string> = {
   indirizzo: "Indirizzo",
 };
 
-/** Peso per l'ordinamento: "critico" in cima, "info" in fondo. */
-const PESO: Record<LivelloRiga, number> = {
-  critico: 3,
-  allarme: 2,
-  avviso: 1,
-  info: 0,
-};
-
 const classiCampo =
-  "mono min-h-9 border border-[var(--bordo)] bg-[var(--sfondo)] px-2.5 py-1.5 text-[11.5px] text-[var(--testo)] focus:border-[var(--accento)] focus:outline-none";
-
-/**
- * Origine dell'indirizzo: bandiera, marcatore VPN, nome inverso.
- *
- * Le tre cose stanno insieme perché si leggono insieme: un indirizzo
- * italiano da rete domestica e uno "italiano" ospitato in un datacenter
- * olandese sono due fatti diversi, e separarli in due colonne costringe a
- * ricomporli con gli occhi. La V non è una certezza — è quello che dice il
- * nome inverso dell'indirizzo — quindi porta con sé la propria prova nel
- * titolo, invece di limitarsi ad affermare.
- */
-function Origine({ rete }: { rete?: SchedaRete }) {
-  if (!rete?.hosting) return null;
-  return (
-    <span
-      title={rete.ptr ? `Probabile VPN o datacenter: ${rete.ptr}` : undefined}
-      aria-label="probabile VPN o datacenter"
-      className="mono border border-[var(--accento)] px-1 text-[9px] font-bold text-[var(--accento)]"
-    >
-      V
-    </span>
-  );
-}
+  "mono min-h-11 w-full border border-[var(--bordo)] bg-[var(--sfondo)] px-2.5 py-1.5 text-[11.5px] text-[var(--testo)] focus:border-[var(--accento)] focus:outline-none";
 
 export function ConsoleRegistro({
   righe,
@@ -137,7 +66,7 @@ export function ConsoleRegistro({
   tracciate: number;
   /** Solo DEVELOPER: mostra le scorciatoie di esclusione sulle righe. */
   puoBandire: boolean;
-  onBandisci?: (tipo: "IP" | "DISPOSITIVO", valore: string) => void;
+  onBandisci?: (tipo: BersaglioBando, valore: string) => void;
 }) {
   const [cerca, setCerca] = useState("");
   const [livelli, setLivelli] = useState<Set<LivelloRiga>>(new Set());
@@ -211,7 +140,9 @@ export function ConsoleRegistro({
         return ordinate.sort((a, b) => a.quando - b.quando);
       case "gravita":
         return ordinate.sort(
-          (a, b) => PESO[b.livello] - PESO[a.livello] || b.quando - a.quando,
+          (a, b) =>
+            PESO_LIVELLO[b.livello] - PESO_LIVELLO[a.livello] ||
+            b.quando - a.quando,
         );
       case "durata":
         return ordinate.sort((a, b) => b.durataMs - a.durataMs);
@@ -267,59 +198,63 @@ export function ConsoleRegistro({
 
   return (
     <div className="flex flex-col gap-3">
-      {/* ----------------------------- Filtri ----------------------------- */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[200px] flex-1">
-          <input
-            type="search"
-            value={cerca}
-            onChange={(evento) => setCerca(evento.target.value)}
-            placeholder="Cerca: percorso, IP, utente, dispositivo, paese, agente…"
-            aria-label="Filtra le righe della console"
-            className={`${classiCampo} w-full`}
-          />
+      {/* ----------------------------- Filtri -----------------------------
+          La ricerca da sola su tutta la larghezza, i menù in due colonne
+          sotto: in una sola fila che va a capo, su telefono i tre selettori
+          si stringevano a due centimetri l'uno e mostravano tre lettere
+          della voce scelta. */}
+      <div className="flex flex-col gap-2">
+        <input
+          type="search"
+          value={cerca}
+          onChange={(evento) => setCerca(evento.target.value)}
+          placeholder="Cerca: percorso, IP, utente, dispositivo, paese, agente…"
+          aria-label="Filtra le righe della console"
+          className={classiCampo}
+        />
+
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <select
+            value={metodo}
+            onChange={(evento) => setMetodo(evento.target.value)}
+            aria-label="Filtra per metodo"
+            className={classiCampo}
+          >
+            <option value="">Ogni metodo</option>
+            {metodi.map((voce) => (
+              <option key={voce} value={voce}>
+                {voce}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={esito}
+            onChange={(evento) => setEsito(evento.target.value)}
+            aria-label="Filtra per esito"
+            className={classiCampo}
+          >
+            <option value="">Ogni esito</option>
+            {esiti.map((voce) => (
+              <option key={voce} value={voce}>
+                {voce}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={ordine}
+            onChange={(evento) => setOrdine(evento.target.value as Ordine)}
+            aria-label="Ordina le righe"
+            className={`${classiCampo} col-span-2 sm:col-span-1`}
+          >
+            {(Object.keys(ETICHETTA_ORDINE) as Ordine[]).map((voce) => (
+              <option key={voce} value={voce}>
+                {ETICHETTA_ORDINE[voce]}
+              </option>
+            ))}
+          </select>
         </div>
-
-        <select
-          value={metodo}
-          onChange={(evento) => setMetodo(evento.target.value)}
-          aria-label="Filtra per metodo"
-          className={classiCampo}
-        >
-          <option value="">Ogni metodo</option>
-          {metodi.map((voce) => (
-            <option key={voce} value={voce}>
-              {voce}
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={esito}
-          onChange={(evento) => setEsito(evento.target.value)}
-          aria-label="Filtra per esito"
-          className={classiCampo}
-        >
-          <option value="">Ogni esito</option>
-          {esiti.map((voce) => (
-            <option key={voce} value={voce}>
-              {voce}
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={ordine}
-          onChange={(evento) => setOrdine(evento.target.value as Ordine)}
-          aria-label="Ordina le righe"
-          className={classiCampo}
-        >
-          {(Object.keys(ETICHETTA_ORDINE) as Ordine[]).map((voce) => (
-            <option key={voce} value={voce}>
-              {ETICHETTA_ORDINE[voce]}
-            </option>
-          ))}
-        </select>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
@@ -335,13 +270,11 @@ export function ConsoleRegistro({
                 attivo
                   ? "border-[var(--accento)] bg-[var(--accento)] text-[var(--accento-testo)]"
                   : `border-[var(--bordo)] ${
-                      livello === "critico"
+                      livello === "critico" || livello === "allarme"
                         ? "text-[var(--allarme)]"
-                        : livello === "allarme"
-                          ? "text-[var(--allarme)]"
-                          : livello === "avviso"
-                            ? "text-[var(--accento)]"
-                            : "text-[var(--testo-tenue)]"
+                        : livello === "avviso"
+                          ? "text-[var(--accento)]"
+                          : "text-[var(--testo-tenue)]"
                     }`
               }`}
             >
@@ -408,131 +341,16 @@ export function ConsoleRegistro({
         </p>
       ) : (
         <div className="max-h-[560px] overflow-y-auto border border-[var(--bordo)]">
-          {filtrate.map((riga) => {
-            const nome = etichettaUtente(riga);
-            return (
-              <div
-                key={riga.id}
-                className={`flex flex-wrap items-baseline gap-x-2.5 gap-y-1 border-b border-[var(--bordo)] px-3 py-1.5 last:border-b-0 ${
-                  riga.livello === "critico"
-                    ? "bg-[color-mix(in_srgb,var(--allarme)_12%,transparent)]"
-                    : ""
-                }`}
-              >
-                <span className="mono text-[10.5px] text-[var(--testo-debole)] tabular-nums">
-                  {orario(riga.quando)}
-                </span>
-
-                <span
-                  className={`mono border px-1.5 text-[9.5px] font-bold tracking-[0.08em] ${COLORE_LIVELLO[riga.livello]}`}
-                >
-                  {ETICHETTA_LIVELLO[riga.livello]}
-                </span>
-
-                <span
-                  className={`mono w-[52px] shrink-0 text-[10.5px] font-bold ${
-                    COLORE_METODO[riga.metodo] ?? "text-[var(--allarme)]"
-                  }`}
-                >
-                  {riga.metodo}
-                </span>
-
-                {riga.stato !== null && (
-                  <span
-                    className={`mono text-[10.5px] tabular-nums ${coloreStato(riga.stato)}`}
-                  >
-                    {riga.stato}
-                  </span>
-                )}
-
-                <span className="mono min-w-0 flex-1 text-[11.5px] break-all">
-                  {riga.percorso || "/"}
-                </span>
-
-                {/* Bandiera, indirizzo, marcatore VPN: l'origine in blocco.
-                    La bandiera ha sempre l'etichetta testuale accanto per
-                    chi legge con un lettore di schermo. */}
-                <span className="mono flex items-center gap-1 text-[10.5px] text-[var(--testo-tenue)]">
-                  <span
-                    aria-label={nomePaese(riga.paese)}
-                    title={nomePaese(riga.paese)}
-                  >
-                    {bandiera(riga.paese)}
-                  </span>
-                  {puoBandire ? (
-                    <button
-                      type="button"
-                      onClick={() => onBandisci?.("IP", riga.ip)}
-                      title="Prepara l'esclusione di questo indirizzo"
-                      className="underline decoration-dotted underline-offset-2 hover:text-[var(--allarme)]"
-                    >
-                      {riga.ip}
-                    </button>
-                  ) : (
-                    riga.ip
-                  )}
-                  <Origine rete={rete[riga.ip]} />
-                </span>
-
-                {/* Il marcatore del dispositivo: è ciò che resta uguale
-                    quando l'indirizzo cambia, quindi è la chiave con cui si
-                    esclude davvero qualcuno che si riconnette da altrove.
-                    Mostrato accorciato — trentadue caratteri esadecimali in
-                    ogni riga renderebbero il registro illeggibile — ma il
-                    valore intero è nel titolo e nel bando. */}
-                {riga.dispositivo && (
-                  <span className="mono text-[10px] text-[var(--testo-debole)]">
-                    {puoBandire ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onBandisci?.("DISPOSITIVO", riga.dispositivo as string)
-                        }
-                        title={`Dispositivo ${riga.dispositivo} — prepara l'esclusione`}
-                        className="underline decoration-dotted underline-offset-2 hover:text-[var(--allarme)]"
-                      >
-                        ⬡{riga.dispositivo.slice(0, 8)}
-                      </button>
-                    ) : (
-                      <span title={riga.dispositivo}>
-                        ⬡{riga.dispositivo.slice(0, 8)}
-                      </span>
-                    )}
-                  </span>
-                )}
-
-                {/* L'account, quando c'è. Senza, la riga resta un indirizzo
-                    e basta: è la differenza fra "qualcuno" e "chi". */}
-                {nome ? (
-                  <span className="mono flex items-center gap-1 text-[10.5px] text-[var(--accento)]">
-                    <Icone.utenti className="h-3 w-3" />
-                    {nome}
-                    {riga.ruolo && riga.ruolo !== "UTENTE" && (
-                      <span className="text-[var(--testo-debole)]">
-                        ·{riga.ruolo}
-                      </span>
-                    )}
-                  </span>
-                ) : (
-                  <span className="mono text-[10.5px] text-[var(--testo-debole)]">
-                    anonimo
-                  </span>
-                )}
-
-                {riga.durataMs > 0 && (
-                  <span className="mono text-[10px] text-[var(--testo-debole)] tabular-nums">
-                    {riga.durataMs}ms
-                  </span>
-                )}
-
-                {riga.motivi.length > 0 && (
-                  <span className="mono w-full text-[10.5px] text-[var(--testo-tenue)]">
-                    ↳ {riga.motivi.join(" · ")}
-                  </span>
-                )}
-              </div>
-            );
-          })}
+          {filtrate.map((riga) => (
+            <RigaConsole
+              key={riga.id}
+              riga={riga}
+              nome={etichettaUtente(riga)}
+              rete={rete[riga.ip]}
+              puoBandire={puoBandire}
+              onBandisci={onBandisci}
+            />
+          ))}
         </div>
       )}
 
@@ -540,7 +358,7 @@ export function ConsoleRegistro({
         Filtri e ordinamento lavorano sulle ultime {righe.length} righe
         ricevute; in memoria ce ne sono {tracciate.toLocaleString("it-IT")}. Le
         righe più vecchie cadono via via: la console è una finestra sul
-        presente, non un archivio.
+        presente. Per andare più indietro c&apos;è la scheda Logs.
       </p>
     </div>
   );

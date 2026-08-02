@@ -9,10 +9,12 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { applicaElenchi } from "@/lib/bandi";
+import { applicaElenchi, type VoceElenco } from "@/lib/bandi";
+import type { TipoBando } from "@/generated/prisma/client";
 
 /**
- * Legge bandi attivi e account bloccati e sostituisce la copia in memoria.
+ * Legge bandi attivi, eccezioni e account bloccati, e sostituisce la copia
+ * in memoria.
  *
  * I bandi scaduti non vengono cancellati dal database: restano come storico
  * di ciò che è stato deciso — un elenco di provvedimenti che si cancella da
@@ -21,24 +23,42 @@ import { applicaElenchi } from "@/lib/bandi";
 export async function sincronizzaBandi(): Promise<boolean> {
   try {
     const adesso = new Date();
+    const nonScaduto = { OR: [{ scadeIl: null }, { scadeIl: { gt: adesso } }] };
 
-    const [bandi, bloccati] = await Promise.all([
+    const [bandi, eccezioni, bloccati] = await Promise.all([
       prisma.bando.findMany({
-        where: { OR: [{ scadeIl: null }, { scadeIl: { gt: adesso } }] },
-        select: { tipo: true, valore: true },
+        where: nonScaduto,
+        select: { tipo: true, valore: true, motivo: true, scadeIl: true },
+      }),
+      prisma.eccezioneRete.findMany({
+        where: nonScaduto,
+        select: { ip: true },
       }),
       prisma.utente.findMany({
         where: { bloccato: true },
-        select: { id: true },
+        select: { id: true, motivoBlocco: true },
       }),
     ]);
 
+    const perTipo = (tipo: TipoBando): VoceElenco[] =>
+      bandi
+        .filter((voce) => voce.tipo === tipo)
+        .map((voce) => ({
+          valore: voce.valore,
+          motivo: voce.motivo,
+          scadeIl: voce.scadeIl ? voce.scadeIl.getTime() : null,
+        }));
+
     applicaElenchi({
-      ip: bandi.filter((b) => b.tipo === "IP").map((b) => b.valore),
-      dispositivi: bandi
-        .filter((b) => b.tipo === "DISPOSITIVO")
-        .map((b) => b.valore),
-      account: bloccati.map((utente) => utente.id),
+      ip: perTipo("IP"),
+      sottoreti: perTipo("SOTTORETE"),
+      dispositivi: perTipo("DISPOSITIVO"),
+      account: bloccati.map((utente) => ({
+        valore: utente.id,
+        motivo: utente.motivoBlocco ?? "",
+        scadeIl: null,
+      })),
+      eccezioni: eccezioni.map((voce) => voce.ip),
     });
 
     return true;

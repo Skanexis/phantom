@@ -15,10 +15,15 @@ import {
 import { escapeHtml, notificaAdmin, notificaUtente } from "@/lib/notifiche";
 import { liberaIp } from "@/lib/sorveglianza";
 import {
+  aggiungiEccezioneLocale,
   aggiungiLocale,
   identificativoValido,
+  togliEccezioneLocale,
   togliLocale,
+  type EsitoAzione,
+  type FamigliaBando,
 } from "@/lib/bandi";
+import { sottoreteBandibile } from "@/lib/rete";
 import { eStaff } from "@/lib/permessi";
 import { dataBreve, scadenzaDaPeriodo } from "@/lib/abbonamenti";
 import { linkRichiesta } from "@/lib/richieste";
@@ -28,6 +33,7 @@ import type {
   Ruolo,
   StatoAbbonamentoUtente,
   StatoRichiesta,
+  TipoBando,
 } from "@/generated/prisma/client";
 
 const statiRichiesta = [
@@ -706,12 +712,13 @@ export async function eliminaContatto(dati: FormData) {
  * comando l'unico rimedio sarebbe aspettare mezz'ora o riavviare il
  * processo — cioè far cadere le notifiche di tutti per liberarne uno.
  */
-export async function liberaIndirizzo(dati: FormData) {
+export async function liberaIndirizzo(dati: FormData): Promise<EsitoAzione> {
   await assicuraSviluppatore();
   const ip = stringa(dati, "ip");
-  if (!ip) return;
+  if (!ip) return { ok: false, messaggio: "Manca l'indirizzo." };
   liberaIp(ip);
   revalidatePath("/admin");
+  return { ok: true, messaggio: `${ip} è di nuovo libero di passare.` };
 }
 
 /* ----------------------------------- Ruoli ---------------------------------- */
@@ -896,8 +903,12 @@ export async function cambiaBloccoUtente(dati: FormData) {
   // Il perimetro lavora su una copia in memoria: senza questa riga
   // l'effetto arriverebbe al giro di sincronizzazione successivo, e chi
   // preme "blocca" vedrebbe la persona continuare a navigare.
-  if (blocca) aggiungiLocale("account", utenteId);
-  else togliLocale("account", utenteId);
+  if (blocca) {
+    aggiungiLocale("account", utenteId, {
+      motivo: motivo || "nessun motivo indicato",
+      scadeIl: null,
+    });
+  } else togliLocale("account", utenteId);
 
   // Avvisato solo lo sblocco. Al blocco la persona se ne accorge da sola
   // alla richiesta successiva, e mandarle un messaggio significherebbe
@@ -914,16 +925,39 @@ export async function cambiaBloccoUtente(dati: FormData) {
   rinfresca();
 }
 
-/** Bandisce un indirizzo o un dispositivo. Solo DEVELOPER. */
-export async function creaBando(dati: FormData) {
+/** A quale elenco in memoria corrisponde ogni tipo di bando. */
+const FAMIGLIA: Record<TipoBando, FamigliaBando> = {
+  IP: "ip",
+  SOTTORETE: "sottoreti",
+  DISPOSITIVO: "dispositivi",
+};
+
+const NOME_TIPO: Record<TipoBando, string> = {
+  IP: "indirizzo",
+  SOTTORETE: "rete",
+  DISPOSITIVO: "dispositivo",
+};
+
+/**
+ * Bandisce un indirizzo, una rete o un dispositivo. Solo DEVELOPER.
+ *
+ * Restituisce un esito invece di uscire in silenzio. Prima ogni controllo
+ * fallito era un `return` muto: la pagina si ricaricava identica, e un
+ * bando non creato era indistinguibile da uno creato. Chi lo ha scoperto lo
+ * ha scoperto il giorno in cui serviva.
+ */
+export async function creaBando(dati: FormData): Promise<EsitoAzione> {
   const autore = await assicuraSviluppatore();
 
-  const tipo = stringa(dati, "tipo");
-  const valore = stringa(dati, "valore").slice(0, 100);
+  const tipo = stringa(dati, "tipo") as TipoBando;
+  let valore = stringa(dati, "valore").slice(0, 100);
   const motivo = stringa(dati, "motivo").slice(0, 300);
   const giorni = numero(dati, "giorni", 0);
 
-  if ((tipo !== "IP" && tipo !== "DISPOSITIVO") || !valore) return;
+  if (!FAMIGLIA[tipo]) {
+    return { ok: false, messaggio: "Tipo di esclusione sconosciuto." };
+  }
+  if (!valore) return { ok: false, messaggio: "Manca il valore da escludere." };
 
   /**
    * Forma del valore verificata prima di scriverlo.
@@ -934,60 +968,235 @@ export async function creaBando(dati: FormData) {
    * Chi lo ha creato però lo vede in elenco e lo dà per fatto, e si accorge
    * che non funzionava solo quando serviva davvero.
    */
-  const formaValida =
-    tipo === "DISPOSITIVO"
-      ? identificativoValido(valore)
-      : /^[0-9a-fA-F:.]{3,45}$/.test(valore);
-  if (!formaValida) return;
+  if (tipo === "DISPOSITIVO" && !identificativoValido(valore)) {
+    return {
+      ok: false,
+      messaggio:
+        "Il marcatore del dispositivo deve essere di 32 caratteri esadecimali.",
+    };
+  }
 
-  // "sconosciuto" è il ripiego di ipClient quando il proxy non passa
-  // l'intestazione: bandirlo chiuderebbe fuori chiunque arrivi in quella
-  // condizione, cioè potenzialmente tutti insieme.
-  if (tipo === "IP" && valore === "sconosciuto") return;
+  if (tipo === "SOTTORETE") {
+    // La normalizzazione non è un dettaglio: il perimetro confronta per
+    // uguaglianza, quindi 203.0.113.9/24 e 203.0.113.0/24 devono diventare
+    // la stessa riga, altrimenti si creerebbero due bandi di cui uno non
+    // corrisponderà mai a nessuno.
+    const esame = sottoreteBandibile(valore);
+    if (!esame.valida) {
+      return { ok: false, messaggio: esame.motivo ?? "Rete non valida." };
+    }
+    valore = esame.normalizzata as string;
+  }
+
+  if (tipo === "IP") {
+    if (!/^[0-9a-fA-F:.]{3,45}$/.test(valore)) {
+      return { ok: false, messaggio: "Indirizzo in una forma non valida." };
+    }
+    // "sconosciuto" è il ripiego di ipClient quando il proxy non passa
+    // l'intestazione: bandirlo chiuderebbe fuori chiunque arrivi in quella
+    // condizione, cioè potenzialmente tutti insieme.
+    if (valore === "sconosciuto") {
+      return {
+        ok: false,
+        messaggio:
+          "«sconosciuto» non è un indirizzo: è ciò che si legge quando il proxy non passa l'intestazione. Bandirlo chiuderebbe fuori chiunque si trovi in quella condizione.",
+      };
+    }
+  }
 
   const scadeIl =
     giorni > 0 ? new Date(Date.now() + giorni * 24 * 60 * 60 * 1000) : null;
+  const testo = motivo || "nessun motivo indicato";
 
   // upsert e non create: ribandire un indirizzo già in elenco è un gesto
   // normale — si allunga la scadenza o si corregge il motivo — e non deve
   // fallire per violazione di unicità.
   await prisma.bando.upsert({
     where: { tipo_valore: { tipo, valore } },
-    create: {
-      tipo,
-      valore,
-      motivo: motivo || "nessun motivo indicato",
-      scadeIl,
-      autoreId: autore.id,
-    },
-    update: {
-      motivo: motivo || "nessun motivo indicato",
-      scadeIl,
-      autoreId: autore.id,
-    },
+    create: { tipo, valore, motivo: testo, scadeIl, autoreId: autore.id },
+    update: { motivo: testo, scadeIl, autoreId: autore.id },
   });
 
-  aggiungiLocale(tipo === "IP" ? "ip" : "dispositivi", valore);
+  aggiungiLocale(FAMIGLIA[tipo], valore, {
+    motivo: testo,
+    scadeIl: scadeIl ? scadeIl.getTime() : null,
+  });
   rinfresca();
+
+  return {
+    ok: true,
+    messaggio: `${NOME_TIPO[tipo]} ${valore} escluso${
+      scadeIl ? ` per ${giorni} ${giorni === 1 ? "giorno" : "giorni"}` : " in modo permanente"
+    }.`,
+  };
 }
 
 /** Revoca un bando. La riga resta a database come storico. */
-export async function revocaBando(dati: FormData) {
+export async function revocaBando(dati: FormData): Promise<EsitoAzione> {
   await assicuraSviluppatore();
 
   const id = stringa(dati, "id");
-  if (!id) return;
+  if (!id) return { ok: false, messaggio: "Manca l'identificativo." };
 
   // Tollerante sull'assenza: due schede aperte sullo stesso pannello, e la
   // seconda revoca trova la riga già sparita. Un'eccezione qui manderebbe
   // l'admin sul confine d'errore per un'operazione che in realtà è
   // riuscita — solo non da lui.
-  const bando = await prisma.bando
+  const bando = await prisma.bando.delete({ where: { id } }).catch(() => null);
+  if (!bando) return { ok: true, messaggio: "Esclusione già revocata." };
+
+  togliLocale(FAMIGLIA[bando.tipo], bando.valore);
+  rinfresca();
+
+  return { ok: true, messaggio: `Esclusione di ${bando.valore} revocata.` };
+}
+
+/* -------------------------- Azioni rapide di bando ------------------------- */
+
+/**
+ * Bando in un gesto solo, dalla riga che lo ha suggerito.
+ *
+ * Il modulo completo — motivo, durata — resta per le decisioni ponderate.
+ * Questa serve al caso opposto e più frequente: si sta guardando la console
+ * mentre qualcosa succede, e il tempo che passa fra il vedere e il fermare
+ * è tempo in cui la cosa continua. Il motivo si scrive dopo, modificando la
+ * riga in elenco.
+ */
+export async function bandisciSubito(dati: FormData): Promise<EsitoAzione> {
+  const modulo = new FormData();
+  modulo.set("tipo", stringa(dati, "tipo"));
+  modulo.set("valore", stringa(dati, "valore"));
+  modulo.set(
+    "motivo",
+    stringa(dati, "motivo") || "esclusione rapida dalla sorveglianza",
+  );
+  modulo.set("giorni", stringa(dati, "giorni") || "0");
+  return creaBando(modulo);
+}
+
+/* ----------------------------- Eccezioni di rete ---------------------------- */
+
+/**
+ * Esenta un indirizzo dal bando della sua sottorete.
+ *
+ * È la risposta a un ricorso accolto, e il motivo per cui il bando di rete
+ * è uno strumento usabile: senza, l'unico modo di rimediare a un falso
+ * positivo sarebbe revocare il provvedimento e riaprire la porta a ciò che
+ * lo aveva causato.
+ */
+export async function creaEccezione(dati: FormData): Promise<EsitoAzione> {
+  const autore = await assicuraSviluppatore();
+
+  const ip = stringa(dati, "ip").slice(0, 45);
+  const motivo = stringa(dati, "motivo").slice(0, 300);
+  const giorni = numero(dati, "giorni", 0);
+  const ricorsoId = stringa(dati, "ricorsoId") || null;
+
+  if (!ip || ip === "sconosciuto" || !/^[0-9a-fA-F:.]{3,45}$/.test(ip)) {
+    return { ok: false, messaggio: "Indirizzo in una forma non valida." };
+  }
+
+  const scadeIl =
+    giorni > 0 ? new Date(Date.now() + giorni * 24 * 60 * 60 * 1000) : null;
+  const testo = motivo || "ricorso accolto";
+
+  await prisma.eccezioneRete.upsert({
+    where: { ip },
+    create: { ip, motivo: testo, scadeIl, autoreId: autore.id, ricorsoId },
+    update: { motivo: testo, scadeIl, autoreId: autore.id, ricorsoId },
+  });
+
+  aggiungiEccezioneLocale(ip);
+  rinfresca();
+
+  return {
+    ok: true,
+    messaggio: `${ip} non è più coperto dal bando della sua rete.`,
+  };
+}
+
+export async function revocaEccezione(dati: FormData): Promise<EsitoAzione> {
+  await assicuraSviluppatore();
+
+  const id = stringa(dati, "id");
+  if (!id) return { ok: false, messaggio: "Manca l'identificativo." };
+
+  const voce = await prisma.eccezioneRete
     .delete({ where: { id } })
     .catch(() => null);
-  if (!bando) return;
+  if (!voce) return { ok: true, messaggio: "Eccezione già revocata." };
 
-  togliLocale(bando.tipo === "IP" ? "ip" : "dispositivi", bando.valore);
+  togliEccezioneLocale(voce.ip);
+  rinfresca();
+
+  return { ok: true, messaggio: `Eccezione per ${voce.ip} revocata.` };
+}
+
+/* --------------------------------- Ricorsi --------------------------------- */
+
+/**
+ * Decide un ricorso.
+ *
+ * Accogliere fa due cose in un gesto, ed è voluto: segna il ricorso e crea
+ * l'eccezione per quell'indirizzo. Separarle avrebbe significato che ogni
+ * ricorso accolto richiede un secondo passaggio da un'altra parte del
+ * pannello — cioè che ogni tanto qualcuno lo dimentica, e la persona resta
+ * bloccata dopo che le è stato dato ragione.
+ */
+export async function decidiRicorso(dati: FormData): Promise<EsitoAzione> {
+  const autore = await assicuraSviluppatore();
+
+  const id = stringa(dati, "id");
+  const decisione = stringa(dati, "decisione");
+  const nota = stringa(dati, "nota").slice(0, 500);
+
+  if (!id) return { ok: false, messaggio: "Manca l'identificativo." };
+  if (decisione !== "ACCOLTO" && decisione !== "RESPINTO") {
+    return { ok: false, messaggio: "Decisione non riconosciuta." };
+  }
+
+  const ricorso = await prisma.ricorso.findUnique({ where: { id } });
+  if (!ricorso) return { ok: false, messaggio: "Ricorso non trovato." };
+
+  await prisma.ricorso.update({
+    where: { id },
+    data: {
+      stato: decisione,
+      decisoIl: new Date(),
+      decisoDaId: autore.id,
+      nota: nota || null,
+    },
+  });
+
+  if (decisione === "RESPINTO") {
+    rinfresca();
+    return { ok: true, messaggio: "Ricorso respinto." };
+  }
+
+  // Accolto: l'indirizzo torna a passare. Per un bando di rete basta
+  // l'eccezione; per un bando sul singolo indirizzo o sul dispositivo
+  // l'eccezione non c'entra — lì il provvedimento va tolto, perché era
+  // stato preso proprio su quel valore.
+  if (ricorso.causa === "sottorete") {
+    const modulo = new FormData();
+    modulo.set("ip", ricorso.ip);
+    modulo.set("motivo", `ricorso accolto${nota ? `: ${nota}` : ""}`);
+    modulo.set("ricorsoId", ricorso.id);
+    const esito = await creaEccezione(modulo);
+    return esito.ok
+      ? { ok: true, messaggio: `Ricorso accolto. ${esito.messaggio}` }
+      : esito;
+  }
+
+  const tipo: TipoBando = ricorso.causa === "ip" ? "IP" : "DISPOSITIVO";
+  const bando = await prisma.bando
+    .delete({ where: { tipo_valore: { tipo, valore: ricorso.valore } } })
+    .catch(() => null);
+  if (bando) togliLocale(FAMIGLIA[tipo], bando.valore);
 
   rinfresca();
+  return {
+    ok: true,
+    messaggio: `Ricorso accolto: esclusione di ${ricorso.valore} revocata.`,
+  };
 }

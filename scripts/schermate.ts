@@ -11,51 +11,74 @@ import { chromium, devices } from "playwright";
  *
  * Uso:
  *   SESSIONE="<cookie>" npx tsx scripts/schermate.ts
+ *
+ * Nota: se `SESSIONE` non è fornita, lo script cattura solo le pagine
+ * pubbliche. Le pagine che richiedono login (es. `area-personale`) verranno
+ * saltate automaticamente. Le pagine `admin` sono escluse.
  */
 
 const SITO = process.env.SITO_URL ?? "https://phantom-lab.eu";
 const CARTELLA = process.env.CARTELLA_USCITA ?? "schermate";
+
+/** Timeout per la navigazione (ms). Sovrascrivibile con TIMEOUT. */
+const TIMEOUT = Number(process.env.TIMEOUT ?? 60_000);
 
 /**
  * iPhone 15 Pro: 393×852 a 3x. È il profilo dei modelli Pro recenti, che
  * condividono la stessa area utile. Sovrascrivibile se serve un altro
  * formato — la larghezza logica è ciò che conta per l'impaginazione.
  */
-const LARGHEZZA = Number(process.env.LARGHEZZA ?? 393);
-const ALTEZZA = Number(process.env.ALTEZZA ?? 852);
+/** Impostazione di default orientata a Instagram Stories: 1080×1920 */
+const LARGHEZZA = Number(process.env.LARGHEZZA ?? 360);
+const ALTEZZA = Number(process.env.ALTEZZA ?? 640);
 const SCALA = Number(process.env.SCALA ?? 3);
 
 /** Pagine da catturare: percorso, nome del file, descrizione. */
-const PAGINE = [
-  { url: "/", nome: "01-home", titolo: "Home" },
-  { url: "/#servizi", nome: "02-servizi", titolo: "Servizi" },
-  { url: "/#abbonamenti", nome: "03-abbonamenti", titolo: "Abbonamenti" },
-  { url: "/#faq", nome: "04-faq", titolo: "FAQ" },
-  { url: "/richiesta", nome: "05-richiesta", titolo: "Nuova richiesta" },
-  {
-    url: "/area-personale",
-    nome: "06-area-personale",
-    titolo: "Area personale",
-  },
-];
+/** Costruisce l'elenco di pagine a partire dalle route in `src/app/(sito)`.
+ * Esclude la cartella `admin`.
+ */
+function scopriPagine() {
+  const sitoDir = path.join(process.cwd(), "src", "app", "(sito)");
+  const pagine: { url: string; nome: string; titolo: string }[] = [];
 
-function pretendiCookie() {
-  const sessione = process.env.SESSIONE;
-  if (!sessione) {
-    console.error(
-      "\nManca SESSIONE.\n\n" +
-        "Il sito non ha password: la sessione va presa da un browser già\n" +
-        "collegato. Istruzioni in docs/SCHERMATE.md.\n\n" +
-        'Esempio: SESSIONE="eyJhbG..." npx tsx scripts/schermate.ts\n',
-    );
-    process.exit(1);
+  // Sempre includere la home come prima voce.
+  pagine.push({ url: "/", nome: "01-home", titolo: "Home" });
+
+  let indice = 2;
+  try {
+    const entries = fs.readdirSync(sitoDir, { withFileTypes: true });
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      if (ent.name === "admin") continue; // escludi admin
+
+      const pageFile = path.join(sitoDir, ent.name, "page.tsx");
+      if (!fs.existsSync(pageFile)) continue;
+
+      const url = `/${ent.name}`;
+      const nome = `${String(indice).padStart(2, "0")}-${ent.name}`;
+      const titolo = ent.name.replace(/-/g, " ");
+      pagine.push({ url, nome, titolo });
+      indice += 1;
+    }
+  } catch (e) {
+    // In caso di errore, ritorna le pagine di default minime.
+    return pagine;
   }
-  return sessione;
+
+  return pagine;
+}
+
+// SESSIONE è opzionale: senza, lo script cattura solo le pagine pubbliche.
+// Se serve una sessione per alcune pagine (es. `area-personale`), verranno
+// saltate se `SESSIONE` non è fornita.
+function leggiSessione() {
+  return process.env.SESSIONE ?? undefined;
 }
 
 async function main() {
-  const sessione = pretendiCookie();
+  const sessione = leggiSessione();
   const dominio = new URL(SITO).hostname;
+  const PAGINE = scopriPagine();
 
   fs.mkdirSync(CARTELLA, { recursive: true });
 
@@ -70,8 +93,9 @@ async function main() {
     timezoneId: "Europe/Rome",
   });
 
-  const cookie = [
-    {
+  const cookie: any[] = [];
+  if (sessione) {
+    cookie.push({
       name: "phantomlab_sessione",
       value: sessione,
       domain: dominio,
@@ -79,8 +103,8 @@ async function main() {
       httpOnly: true,
       secure: true,
       sameSite: "Lax" as const,
-    },
-  ];
+    });
+  }
 
   // Con SITO_CHIUSO="true" ogni pagina mostra la schermata di attesa:
   // serve anche il cookie del gate, altrimenti si catturano sei volte
@@ -97,7 +121,7 @@ async function main() {
     });
   }
 
-  await contesto.addCookies(cookie);
+  if (cookie.length > 0) await contesto.addCookies(cookie);
 
   const pagina = await contesto.newPage();
   let catturate = 0;
@@ -106,10 +130,16 @@ async function main() {
     const indirizzo = `${SITO}${voce.url}`;
     process.stdout.write(`  ${voce.titolo} … `);
 
+    // Se la pagina è area-personale e non abbiamo sessione, la saltiamo.
+    if (voce.url === "/area-personale" && !sessione) {
+      console.log("skip (sessione mancante)");
+      continue;
+    }
+
     try {
       await pagina.goto(indirizzo, {
         waitUntil: "networkidle",
-        timeout: 30_000,
+        timeout: TIMEOUT,
       });
 
       // Le animazioni d'ingresso partono allo scroll: senza scorrere fino
@@ -178,7 +208,8 @@ async function main() {
       console.log("ok");
     } catch (errore) {
       console.log("errore");
-      console.error(`    ${(errore as Error).message}`);
+      console.error(`    Errore catturando ${indirizzo}: ${(errore as Error).message}`);
+      if ((errore as any).stack) console.error((errore as any).stack);
     }
   }
 

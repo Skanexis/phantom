@@ -24,6 +24,8 @@ import { SezioneSottoscrizioni } from "./sezioni/sottoscrizioni";
 import { SezioneAbbonamenti } from "./sezioni/abbonamenti";
 import { SezioneRuoli } from "./sezioni/ruoli";
 import { SezioneSorveglianza } from "./sezioni/sorveglianza";
+import { SezioneRegistro } from "./sezioni/registro";
+import { SezioneRicorsi } from "./sezioni/ricorsi";
 import { SezioneUtenti } from "./sezioni/utenti";
 import {
   SezioneAutomazioni,
@@ -112,6 +114,7 @@ export default async function PannelloAdmin() {
     utentiAnagrafica,
     segnalazioniAperte,
     bandiAttivi,
+    ricorsi,
   ] = await Promise.all([
     prisma.abbonamento.findMany({
       orderBy: { ordine: "asc" },
@@ -265,6 +268,19 @@ export default async function PannelloAdmin() {
       orderBy: { creatoIl: "desc" },
       take: 100,
     }),
+    /**
+     * Ricorsi: gli aperti sempre, i decisi solo gli ultimi.
+     *
+     * Lo storico serve a rispondere alla domanda "questo indirizzo aveva
+     * già scritto?", non a essere sfogliato per intero: cinquanta righe
+     * bastano, e senza il taglio la scheda crescerebbe per sempre.
+     */
+    gestisceContenuti
+      ? prisma.ricorso.findMany({
+          orderBy: [{ stato: "asc" }, { creatoIl: "desc" }],
+          take: 50,
+        })
+      : Promise.resolve([]),
   ]);
 
   const attivazioniInAttesa = sottoscrizioni.filter(
@@ -439,6 +455,20 @@ export default async function PannelloAdmin() {
                     // si vede dalla barra senza aprire la scheda.
                     contatore: eventiSicurezza,
                   },
+                  {
+                    id: "logs",
+                    etichetta: "Logs",
+                  },
+                  {
+                    id: "ricorsi",
+                    etichetta: "Ricorsi",
+                    // Un ricorso aperto è qualcuno che sta aspettando una
+                    // risposta mentre resta chiuso fuori: se non si vede
+                    // dalla barra, si scopre quando è troppo tardi per
+                    // essere una risposta.
+                    contatore: ricorsi.filter((v) => v.stato === "APERTO")
+                      .length,
+                  },
                   { id: "ruoli", etichetta: "Ruoli" },
                   { id: "abbonamenti", etichetta: "Piani" },
                   { id: "servizi", etichetta: "Servizi" },
@@ -548,6 +578,30 @@ export default async function PannelloAdmin() {
             ...(gestisceContenuti
               ? {
                   sorveglianza: <SezioneSorveglianza />,
+                  logs: <SezioneRegistro />,
+                  ricorsi: (
+                    <SezioneRicorsi
+                      // Le date attraversano il confine server/client: si
+                      // passano come stringhe ISO invece che come Date, che
+                      // Next serializzerebbe comunque e che al client
+                      // arriverebbero come stringa senza che i tipi lo dicano.
+                      ricorsi={ricorsi.map((voce) => ({
+                        id: voce.id,
+                        causa: voce.causa,
+                        valore: voce.valore,
+                        ip: voce.ip,
+                        sottorete: voce.sottorete,
+                        dispositivo: voce.dispositivo,
+                        messaggio: voce.messaggio,
+                        contatto: voce.contatto,
+                        agente: voce.agente,
+                        stato: voce.stato,
+                        creatoIl: voce.creatoIl.toISOString(),
+                        decisoIl: voce.decisoIl?.toISOString() ?? null,
+                        nota: voce.nota,
+                      }))}
+                    />
+                  ),
                   ruoli: <SezioneRuoli staff={staff} />,
                   abbonamenti: (
                     <SezioneAbbonamenti
