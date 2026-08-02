@@ -14,7 +14,12 @@ import {
 } from "@/lib/telegram-bot";
 import { escapeHtml, notificaAdmin, notificaUtente } from "@/lib/notifiche";
 import { liberaIp } from "@/lib/sorveglianza";
-import { aggiungiLocale, togliLocale } from "@/lib/bandi";
+import {
+  aggiungiLocale,
+  identificativoValido,
+  togliLocale,
+} from "@/lib/bandi";
+import { eStaff } from "@/lib/permessi";
 import { dataBreve, scadenzaDaPeriodo } from "@/lib/abbonamenti";
 import { linkRichiesta } from "@/lib/richieste";
 import { LUNGHEZZA_MASSIMA, inviaMessaggioAdmin } from "@/lib/messaggi";
@@ -778,12 +783,20 @@ export async function segnalaUtente(dati: FormData) {
   // invece dell'elenco dei casi da decidere.
   const gia = await prisma.segnalazione.findFirst({
     where: { utenteId, stato: { in: ["APERTA", "PRESA_IN_CARICO"] } },
-    select: { id: true },
+    select: { id: true, motivo: true },
   });
   if (gia) {
+    // Il testo si accoda, ma con un tetto: senza, ogni nuova segnalazione
+    // sullo stesso account allungava la stessa riga all'infinito, e chi
+    // avesse voluto riempire il database avrebbe dovuto solo premere
+    // "invia" un po' di volte. Duemila caratteri sono già più di quanto
+    // un admin legga prima di decidere.
+    const aggiornato =
+      `${gia.motivo}\n\n— ${autore.telegramId}: ${motivo}`.slice(0, 2000);
+
     await prisma.segnalazione.update({
       where: { id: gia.id },
-      data: { motivo: `${motivo}\n— aggiunta da ${autore.telegramId}` },
+      data: { motivo: aggiornato },
     });
     rinfresca();
     return;
@@ -847,10 +860,21 @@ export async function cambiaBloccoUtente(dati: FormData) {
   // sessione sul server per rimediare, e non ha nessun uso legittimo.
   if (bersaglio.id === operatore.id) return;
 
-  // Un DEVELOPER non si blocca dal pannello. È lo stesso principio per cui
-  // quel ruolo si assegna solo da console: l'ultimo livello di accesso non
-  // deve poter essere chiuso fuori da chi sta sotto.
+  /**
+   * Chi sta sopra blocca chi sta sotto, mai un pari grado.
+   *
+   * Senza questa riga un ADMIN poteva bloccare un altro ADMIN: due account
+   * dello stesso livello con il potere di chiudersi fuori a vicenda, dove
+   * vince chi preme per primo. Non è un caso di scuola — basta un account
+   * di staff compromesso per far fuori tutti gli altri e restare solo in
+   * casa, e il rimedio sarebbe una sessione sul server.
+   *
+   * DEVELOPER resta fuori portata per tutti, come per l'assegnazione dei
+   * ruoli: l'ultimo livello di accesso non si chiude dal pannello.
+   */
+  const bersaglioEStaff = eStaff(bersaglio.ruolo);
   if (bersaglio.ruolo === "DEVELOPER") return;
+  if (bersaglioEStaff && operatore.ruolo !== "DEVELOPER") return;
 
   await prisma.utente.update({
     where: { id: utenteId },
@@ -901,6 +925,26 @@ export async function creaBando(dati: FormData) {
 
   if ((tipo !== "IP" && tipo !== "DISPOSITIVO") || !valore) return;
 
+  /**
+   * Forma del valore verificata prima di scriverlo.
+   *
+   * Non è una difesa contro l'iniezione — Prisma parametrizza — ma contro
+   * un errore che non fa rumore: un IP scritto male, o un identificativo
+   * incollato a metà, produce un bando che non corrisponderà mai a nulla.
+   * Chi lo ha creato però lo vede in elenco e lo dà per fatto, e si accorge
+   * che non funzionava solo quando serviva davvero.
+   */
+  const formaValida =
+    tipo === "DISPOSITIVO"
+      ? identificativoValido(valore)
+      : /^[0-9a-fA-F:.]{3,45}$/.test(valore);
+  if (!formaValida) return;
+
+  // "sconosciuto" è il ripiego di ipClient quando il proxy non passa
+  // l'intestazione: bandirlo chiuderebbe fuori chiunque arrivi in quella
+  // condizione, cioè potenzialmente tutti insieme.
+  if (tipo === "IP" && valore === "sconosciuto") return;
+
   const scadeIl =
     giorni > 0 ? new Date(Date.now() + giorni * 24 * 60 * 60 * 1000) : null;
 
@@ -934,7 +978,15 @@ export async function revocaBando(dati: FormData) {
   const id = stringa(dati, "id");
   if (!id) return;
 
-  const bando = await prisma.bando.delete({ where: { id } });
+  // Tollerante sull'assenza: due schede aperte sullo stesso pannello, e la
+  // seconda revoca trova la riga già sparita. Un'eccezione qui manderebbe
+  // l'admin sul confine d'errore per un'operazione che in realtà è
+  // riuscita — solo non da lui.
+  const bando = await prisma.bando
+    .delete({ where: { id } })
+    .catch(() => null);
+  if (!bando) return;
+
   togliLocale(bando.tipo === "IP" ? "ip" : "dispositivi", bando.valore);
 
   rinfresca();

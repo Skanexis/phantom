@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Etichetta } from "@/components/ui";
 import { Icone, type NomeIcona } from "@/components/icone";
-import { liberaIndirizzo } from "../azioni";
+import { creaBando, liberaIndirizzo } from "../azioni";
 import { ConsoleRegistro } from "./console-registro";
+import { bandiera, nomePaese } from "@/lib/geo";
+import type { SchedaRete } from "@/lib/rete-inversa";
 import type { Istantanea, TipoEvento } from "@/lib/sorveglianza";
 
 /**
@@ -23,6 +25,14 @@ const INTERVALLO_MS = 5000;
 type Dati = Istantanea & {
   /** utenteId → nome leggibile, tradotto dal server. */
   nomi: Record<string, string>;
+  /** ip → esito della risoluzione inversa, per il marcatore VPN. */
+  rete: Record<string, SchedaRete>;
+  elenchi: {
+    ip: number;
+    dispositivi: number;
+    account: number;
+    aggiornatoIl: number;
+  };
   flussi: { connessioni: number; soggetti: number; massimoSingolo: number };
   carico: {
     utenti: number;
@@ -197,6 +207,40 @@ function Cifre({
   );
 }
 
+/**
+ * Bandiera del paese più, quando serve, la V di "probabile VPN".
+ *
+ * La bandiera resta anche quando il paese è ignoto (bandiera bianca): una
+ * colonna che a volte c'è e a volte no fa saltare l'allineamento di tutte
+ * le righe sotto, e in un elenco che si scorre l'allineamento è metà della
+ * leggibilità. Il paese arriva da un'intestazione del proxy — se nessuno la
+ * imposta, tutte le righe restano bianche (vedi geo.ts).
+ */
+function SegnoOrigine({
+  ip,
+  rete,
+}: {
+  ip: string;
+  rete: Record<string, SchedaRete>;
+}) {
+  const scheda = rete[ip];
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1">
+      {scheda?.hosting && (
+        <span
+          title={
+            scheda.ptr ? `Probabile VPN o datacenter: ${scheda.ptr}` : undefined
+          }
+          aria-label="probabile VPN o datacenter"
+          className="mono border border-[var(--accento)] px-1 text-[9px] font-bold text-[var(--accento)]"
+        >
+          V
+        </span>
+      )}
+    </span>
+  );
+}
+
 /* -------------------------------- Pannello -------------------------------- */
 
 export function SezioneSorveglianza() {
@@ -204,6 +248,20 @@ export function SezioneSorveglianza() {
   const [errore, setErrore] = useState<string | null>(null);
   const [inPausa, setInPausa] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /**
+   * Bozza di esclusione, riempita da un clic sulla console.
+   *
+   * Prima l'unico modo di bandire un dispositivo era copiare a mano
+   * trentadue caratteri esadecimali da una riga di registro e incollarli in
+   * un'altra scheda del pannello: un'operazione che si sbaglia, e che si
+   * sbaglia in silenzio — un identificativo storto produce un bando che non
+   * corrisponderà mai a nessuno. Il valore arriva qui direttamente dalla
+   * riga che lo ha mostrato.
+   */
+  const [bozza, setBozza] = useState<{
+    tipo: "IP" | "DISPOSITIVO";
+    valore: string;
+  } | null>(null);
 
   useEffect(() => {
     // Smontato il componente, le risposte ancora in volo non devono più
@@ -375,9 +433,78 @@ export function SezioneSorveglianza() {
         <ConsoleRegistro
           righe={dati.registro}
           nomi={dati.nomi}
+          rete={dati.rete}
           tracciate={dati.registroTracciato}
+          puoBandire
+          onBandisci={(tipo, valore) => setBozza({ tipo, valore })}
         />
       </Sezione>
+
+      {/* ---------------------------- Esclusione --------------------------- */}
+      {bozza && (
+        <Sezione
+          icona="divieto"
+          titolo={
+            bozza.tipo === "IP"
+              ? "Escludi questo indirizzo"
+              : "Escludi questo dispositivo"
+          }
+          nota={`in vigore: ${dati.elenchi.ip} IP · ${dati.elenchi.dispositivi} dispositivi · ${dati.elenchi.account} account`}
+          accento
+        >
+          <form action={creaBando} className="flex flex-col gap-3">
+            <input type="hidden" name="tipo" value={bozza.tipo} />
+            <input type="hidden" name="valore" value={bozza.valore} />
+
+            <p className="mono border border-[var(--bordo)] p-3 text-[12px] break-all">
+              <span className="text-[var(--testo-debole)]">
+                {bozza.tipo === "IP" ? "indirizzo" : "dispositivo"}{" "}
+              </span>
+              {bozza.valore}
+            </p>
+
+            {bozza.tipo === "IP" && (
+              <p className="mono text-[10.5px] leading-[1.7] text-[var(--testo-debole)]">
+                Un indirizzo può essere condiviso da un intero ufficio o da
+                una rete mobile: escluderlo può prendere dentro persone
+                estranee. Se lo scopo è fermare qualcuno che cambia rete, il
+                bando del dispositivo è più preciso.
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <input
+                name="motivo"
+                placeholder="Motivo"
+                aria-label="Motivo dell'esclusione"
+                className="mono min-h-11 flex-1 border border-[var(--bordo)] bg-[var(--sfondo)] px-3 text-[12px] outline-none focus:border-[var(--accento)]"
+              />
+              <input
+                name="giorni"
+                type="number"
+                min="0"
+                defaultValue="0"
+                aria-label="Giorni (0 = permanente)"
+                title="Giorni. 0 significa permanente."
+                className="mono min-h-11 w-24 border border-[var(--bordo)] bg-[var(--sfondo)] px-3 text-[12px] outline-none focus:border-[var(--accento)]"
+              />
+              <button
+                type="submit"
+                className="mono spinta min-h-11 border border-[var(--allarme)] px-5 text-[11px] tracking-[0.12em] text-[var(--allarme)] uppercase"
+              >
+                Escludi
+              </button>
+              <button
+                type="button"
+                onClick={() => setBozza(null)}
+                className="mono spinta min-h-11 border border-[var(--bordo)] px-4 text-[11px] tracking-[0.12em] uppercase"
+              >
+                Annulla
+              </button>
+            </div>
+          </form>
+        </Sezione>
+      )}
 
       {/* ----------------------------- Account ----------------------------- */}
       <Sezione
@@ -639,6 +766,7 @@ export function SezioneSorveglianza() {
                     {voce.inQuarantena && (
                       <Icone.divieto className="h-3.5 w-3.5 text-[var(--allarme)]" />
                     )}
+                    <SegnoOrigine ip={voce.ip} rete={dati.rete} />
                     {voce.ip}
                   </span>
                   <span className="mono text-[11px] text-[var(--testo-tenue)]">
@@ -788,7 +916,26 @@ export function SezioneSorveglianza() {
               <tbody className="divide-y divide-[var(--bordo)]">
                 {dati.indirizzi.map((riga) => (
                   <tr key={riga.ip}>
-                    <td className="mono py-2 text-[11.5px]">{riga.ip}</td>
+                    <td className="mono py-2 text-[11.5px]">
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          aria-label={nomePaese(riga.paese)}
+                          title={nomePaese(riga.paese)}
+                        >
+                          {bandiera(riga.paese)}
+                        </span>
+                        {riga.ip}
+                        <SegnoOrigine ip={riga.ip} rete={dati.rete} />
+                      </span>
+                      {riga.dispositivo && (
+                        <span
+                          title={`Dispositivo ${riga.dispositivo}`}
+                          className="mt-0.5 block text-[10px] text-[var(--testo-debole)]"
+                        >
+                          ⬡{riga.dispositivo.slice(0, 12)}
+                        </span>
+                      )}
+                    </td>
                     <td className="mono py-2 text-[11.5px]">
                       {cifra(riga.richieste)}
                     </td>

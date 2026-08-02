@@ -2,6 +2,8 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { Icone } from "@/components/icone";
+import { bandiera, nomePaese } from "@/lib/geo";
+import type { SchedaRete } from "@/lib/rete-inversa";
 import type { LivelloRiga, RigaRegistro, TipoEvento } from "@/lib/sorveglianza";
 
 /**
@@ -95,22 +97,54 @@ const PESO: Record<LivelloRiga, number> = {
 const classiCampo =
   "mono min-h-9 border border-[var(--bordo)] bg-[var(--sfondo)] px-2.5 py-1.5 text-[11.5px] text-[var(--testo)] focus:border-[var(--accento)] focus:outline-none";
 
+/**
+ * Origine dell'indirizzo: bandiera, marcatore VPN, nome inverso.
+ *
+ * Le tre cose stanno insieme perché si leggono insieme: un indirizzo
+ * italiano da rete domestica e uno "italiano" ospitato in un datacenter
+ * olandese sono due fatti diversi, e separarli in due colonne costringe a
+ * ricomporli con gli occhi. La V non è una certezza — è quello che dice il
+ * nome inverso dell'indirizzo — quindi porta con sé la propria prova nel
+ * titolo, invece di limitarsi ad affermare.
+ */
+function Origine({ rete }: { rete?: SchedaRete }) {
+  if (!rete?.hosting) return null;
+  return (
+    <span
+      title={rete.ptr ? `Probabile VPN o datacenter: ${rete.ptr}` : undefined}
+      aria-label="probabile VPN o datacenter"
+      className="mono border border-[var(--accento)] px-1 text-[9px] font-bold text-[var(--accento)]"
+    >
+      V
+    </span>
+  );
+}
+
 export function ConsoleRegistro({
   righe,
   nomi,
+  rete,
   tracciate,
+  puoBandire,
+  onBandisci,
 }: {
   righe: RigaRegistro[];
   /** Traduzione utenteId → nome leggibile, fatta dal server. */
   nomi: Record<string, string>;
+  /** Classificazione degli indirizzi per risoluzione inversa. */
+  rete: Record<string, SchedaRete>;
   /** Quante righe esistono in memoria, oltre alla finestra ricevuta. */
   tracciate: number;
+  /** Solo DEVELOPER: mostra le scorciatoie di esclusione sulle righe. */
+  puoBandire: boolean;
+  onBandisci?: (tipo: "IP" | "DISPOSITIVO", valore: string) => void;
 }) {
   const [cerca, setCerca] = useState("");
   const [livelli, setLivelli] = useState<Set<LivelloRiga>>(new Set());
   const [metodo, setMetodo] = useState("");
   const [esito, setEsito] = useState("");
   const [soloIdentificati, setSoloIdentificati] = useState(false);
+  const [soloVpn, setSoloVpn] = useState(false);
   const [ordine, setOrdine] = useState<Ordine>("recenti");
 
   const etichettaUtente = useCallback(
@@ -141,6 +175,7 @@ export function ConsoleRegistro({
       if (metodo && riga.metodo !== metodo) return false;
       if (esito && riga.esito !== esito) return false;
       if (soloIdentificati && !riga.utenteId) return false;
+      if (soloVpn && !rete[riga.ip]?.hosting) return false;
 
       if (!testo) return true;
 
@@ -157,6 +192,9 @@ export function ConsoleRegistro({
         nome.toLowerCase().includes(testo) ||
         (riga.ruolo ?? "").toLowerCase().includes(testo) ||
         (riga.telegramId ?? "").includes(testo) ||
+        (riga.dispositivo ?? "").includes(testo) ||
+        (riga.paese ?? "").toLowerCase().includes(testo) ||
+        (rete[riga.ip]?.ptr ?? "").toLowerCase().includes(testo) ||
         riga.agente.toLowerCase().includes(testo) ||
         riga.motivi.some((motivo) => motivo.toLowerCase().includes(testo))
       );
@@ -193,7 +231,9 @@ export function ConsoleRegistro({
     metodo,
     esito,
     soloIdentificati,
+    soloVpn,
     ordine,
+    rete,
     etichettaUtente,
   ]);
 
@@ -222,7 +262,8 @@ export function ConsoleRegistro({
     livelli.size > 0 ||
     Boolean(metodo) ||
     Boolean(esito) ||
-    soloIdentificati;
+    soloIdentificati ||
+    soloVpn;
 
   return (
     <div className="flex flex-col gap-3">
@@ -233,7 +274,7 @@ export function ConsoleRegistro({
             type="search"
             value={cerca}
             onChange={(evento) => setCerca(evento.target.value)}
-            placeholder="Cerca: percorso, IP, utente, ruolo, agente, motivo…"
+            placeholder="Cerca: percorso, IP, utente, dispositivo, paese, agente…"
             aria-label="Filtra le righe della console"
             className={`${classiCampo} w-full`}
           />
@@ -322,6 +363,20 @@ export function ConsoleRegistro({
           Solo con account
         </button>
 
+        <button
+          type="button"
+          onClick={() => setSoloVpn((v) => !v)}
+          aria-pressed={soloVpn}
+          title="Indirizzi il cui nome inverso indica un datacenter o una VPN"
+          className={`mono min-h-9 border px-2.5 text-[10.5px] tracking-[0.1em] uppercase transition-colors ${
+            soloVpn
+              ? "border-[var(--accento)] bg-[var(--accento)] text-[var(--accento-testo)]"
+              : "border-[var(--bordo)] text-[var(--testo-tenue)]"
+          }`}
+        >
+          Solo VPN
+        </button>
+
         {filtriAttivi && (
           <button
             type="button"
@@ -331,6 +386,7 @@ export function ConsoleRegistro({
               setMetodo("");
               setEsito("");
               setSoloIdentificati(false);
+              setSoloVpn(false);
             }}
             className="mono min-h-9 border border-[var(--bordo)] px-2.5 text-[10.5px] tracking-[0.1em] text-[var(--testo-tenue)] uppercase"
           >
@@ -393,9 +449,57 @@ export function ConsoleRegistro({
                   {riga.percorso || "/"}
                 </span>
 
-                <span className="mono text-[10.5px] text-[var(--testo-tenue)]">
-                  {riga.ip}
+                {/* Bandiera, indirizzo, marcatore VPN: l'origine in blocco.
+                    La bandiera ha sempre l'etichetta testuale accanto per
+                    chi legge con un lettore di schermo. */}
+                <span className="mono flex items-center gap-1 text-[10.5px] text-[var(--testo-tenue)]">
+                  <span
+                    aria-label={nomePaese(riga.paese)}
+                    title={nomePaese(riga.paese)}
+                  >
+                    {bandiera(riga.paese)}
+                  </span>
+                  {puoBandire ? (
+                    <button
+                      type="button"
+                      onClick={() => onBandisci?.("IP", riga.ip)}
+                      title="Prepara l'esclusione di questo indirizzo"
+                      className="underline decoration-dotted underline-offset-2 hover:text-[var(--allarme)]"
+                    >
+                      {riga.ip}
+                    </button>
+                  ) : (
+                    riga.ip
+                  )}
+                  <Origine rete={rete[riga.ip]} />
                 </span>
+
+                {/* Il marcatore del dispositivo: è ciò che resta uguale
+                    quando l'indirizzo cambia, quindi è la chiave con cui si
+                    esclude davvero qualcuno che si riconnette da altrove.
+                    Mostrato accorciato — trentadue caratteri esadecimali in
+                    ogni riga renderebbero il registro illeggibile — ma il
+                    valore intero è nel titolo e nel bando. */}
+                {riga.dispositivo && (
+                  <span className="mono text-[10px] text-[var(--testo-debole)]">
+                    {puoBandire ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onBandisci?.("DISPOSITIVO", riga.dispositivo as string)
+                        }
+                        title={`Dispositivo ${riga.dispositivo} — prepara l'esclusione`}
+                        className="underline decoration-dotted underline-offset-2 hover:text-[var(--allarme)]"
+                      >
+                        ⬡{riga.dispositivo.slice(0, 8)}
+                      </button>
+                    ) : (
+                      <span title={riga.dispositivo}>
+                        ⬡{riga.dispositivo.slice(0, 8)}
+                      </span>
+                    )}
+                  </span>
+                )}
 
                 {/* L'account, quando c'è. Senza, la riga resta un indirizzo
                     e basta: è la differenza fra "qualcuno" e "chi". */}

@@ -16,6 +16,7 @@ import {
 import { eStaff } from "@/lib/permessi";
 import { esaminaUrl } from "@/lib/anomalie";
 import { valutaRichiesta } from "@/lib/insolito";
+import { paeseDaIntestazioni } from "@/lib/geo";
 import {
   DURATA_COOKIE_DISPOSITIVO,
   NOME_COOKIE_DISPOSITIVO,
@@ -154,12 +155,6 @@ export async function middleware(richiesta: NextRequest) {
     : null;
   const staffCollegato = Boolean(sessione && eStaff(sessione.ruolo));
 
-  let nuovoIp = false;
-  if (!eWebhook) {
-    nuovoIp = traccia({ ip, metodo, percorso: pathname, agente, identita })
-      .nuovoIp;
-  }
-
   /**
    * Marcatore del dispositivo.
    *
@@ -175,6 +170,25 @@ export async function middleware(richiesta: NextRequest) {
     ? (cookieDispositivo as string)
     : null;
   const dispositivo = dispositivoNoto ?? nuovoIdentificativoDispositivo();
+
+  // Il paese lo mette il proxy, non lo si calcola qui: vedi geo.ts.
+  const paese = paeseDaIntestazioni(richiesta.headers);
+
+  let nuovoIp = false;
+  if (!eWebhook) {
+    nuovoIp = traccia({
+      ip,
+      metodo,
+      percorso: pathname,
+      agente,
+      identita,
+      // Solo il marcatore già posseduto: quello appena generato non ha
+      // ancora raggiunto il browser, e registrarlo assocerebbe
+      // all'indirizzo un identificativo che potrebbe non tornare mai.
+      dispositivo: dispositivoNoto,
+      paese,
+    }).nuovoIp;
+  }
 
   /**
    * Chiude la riga di console per le richieste che il perimetro lascia
@@ -216,6 +230,8 @@ export async function middleware(richiesta: NextRequest) {
       ip,
       agente,
       identita,
+      dispositivo: dispositivoNoto,
+      paese,
       esito,
       stato: stato ?? null,
       motivi: giudizio.motivi,
@@ -256,6 +272,8 @@ export async function middleware(richiesta: NextRequest) {
         agente,
         dettaglio: blocco.motivo,
         identita,
+        dispositivo: dispositivoNoto,
+        paese,
         stato: 429,
         durataMs: Date.now() - inizio,
       });
@@ -307,6 +325,8 @@ export async function middleware(richiesta: NextRequest) {
         agente,
         dettaglio: `esclusione attiva: ${esclusione.causa}`,
         identita,
+        dispositivo: dispositivoNoto,
+        paese,
         stato: 403,
         durataMs: Date.now() - inizio,
       });
@@ -338,6 +358,8 @@ export async function middleware(richiesta: NextRequest) {
       percorso: pathname,
       agente,
       identita,
+      dispositivo: dispositivoNoto,
+      paese,
       stato: 404,
       durataMs: Date.now() - inizio,
     });
@@ -363,6 +385,8 @@ export async function middleware(richiesta: NextRequest) {
         agente,
         dettaglio: `${anomalia.categoria}: ${anomalia.prova}`,
         identita,
+        dispositivo: dispositivoNoto,
+        paese,
         stato: 400,
         durataMs: Date.now() - inizio,
       });
@@ -385,6 +409,8 @@ export async function middleware(richiesta: NextRequest) {
         agente,
         dettaglio: `oltre ${MAX_RICHIESTE_IP} richieste al minuto`,
         identita,
+        dispositivo: dispositivoNoto,
+        paese,
         stato: 429,
         durataMs: Date.now() - inizio,
       });
@@ -414,6 +440,8 @@ export async function middleware(richiesta: NextRequest) {
         ? `Origin: ${richiesta.headers.get("origin")}`
         : "nessun Origin (richiesta fuori dal browser)",
       identita,
+      dispositivo: dispositivoNoto,
+      paese,
       stato: 403,
       durataMs: Date.now() - inizio,
     });

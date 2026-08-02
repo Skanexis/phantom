@@ -44,10 +44,28 @@ export async function eliminaSessione() {
   store.delete(NOME_COOKIE);
 }
 
+/**
+ * L'utente della sessione corrente, riletto dal database.
+ *
+ * Un account bloccato conta come non collegato, e la verifica sta qui e non
+ * solo nel perimetro. Il perimetro decide su una copia in memoria degli
+ * elenchi, che nell'istante fra l'avvio del processo e la prima
+ * sincronizzazione è vuota: in quella finestra un bloccato passerebbe. Qui
+ * invece la fonte è la riga stessa, cioè la verità, e nessuna finestra
+ * esiste. È il motivo per cui i due controlli non sono una ripetizione: il
+ * primo è veloce e vale per tutto il traffico, il secondo è autorevole e
+ * vale dove si decidono i permessi.
+ */
 export async function utenteCorrente() {
   const sessione = await leggiSessione();
   if (!sessione) return null;
-  return prisma.utente.findUnique({ where: { id: sessione.utenteId } });
+
+  const utente = await prisma.utente.findUnique({
+    where: { id: sessione.utenteId },
+  });
+
+  if (!utente || utente.bloccato) return null;
+  return utente;
 }
 
 /** Qualunque membro dello staff: SUPPORTO, ADMIN o DEVELOPER. */

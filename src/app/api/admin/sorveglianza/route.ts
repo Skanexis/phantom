@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { richiediSviluppatore } from "@/lib/sessione";
 import { istantanea } from "@/lib/sorveglianza";
 import { statoFlussi } from "@/lib/limite";
+import { classificaIndirizzi } from "@/lib/rete-inversa";
+import { statoElenchi } from "@/lib/bandi";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -166,9 +168,27 @@ export async function GET() {
   }
   for (const utente of quadro.utenti) ids.add(utente.utenteId);
 
+  /**
+   * Indirizzi da classificare, in ordine di importanza.
+   *
+   * `classificaIndirizzi` ne risolve solo una dozzina di nuovi per giro
+   * (vedi il modulo): con il pannello che si aggiorna ogni cinque secondi,
+   * l'ordine in cui glieli si passa decide quali si popolano per primi.
+   * Prima chi ha generato eventi e chi è in quarantena — sono gli indirizzi
+   * su cui si sta per prendere una decisione — poi il traffico normale.
+   */
+  const daClassificare = [
+    ...quadro.quarantena.map((voce) => voce.ip),
+    ...quadro.sospetti.map((voce) => voce.ip),
+    ...quadro.indirizzi.map((voce) => voce.ip),
+    ...quadro.registro.map((riga) => riga.ip),
+  ];
+
   return NextResponse.json({
     ...quadro,
     nomi: await leggiNomi([...ids]),
+    rete: await classificaIndirizzi(daClassificare),
+    elenchi: statoElenchi(),
     flussi: statoFlussi(),
     carico: await leggiCarico(),
     processo: {

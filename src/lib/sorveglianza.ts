@@ -102,6 +102,15 @@ export type SchedaIp = {
   utenteId?: string;
   telegramId?: string;
   ruolo?: string;
+  /** Codice ISO del paese, quando il proxy lo fornisce. */
+  paese?: string;
+  /**
+   * Ultimo marcatore di dispositivo visto da questo indirizzo. È la chiave
+   * che rende utile il bando per dispositivo: senza, dal pannello si può
+   * escludere solo un IP, cioè la cosa che chi vuole rientrare cambia per
+   * prima.
+   */
+  dispositivo?: string;
 };
 
 /* --------------------------- Registro e identità -------------------------- */
@@ -145,6 +154,10 @@ export type RigaRegistro = {
   utenteId: string | null;
   telegramId: string | null;
   ruolo: string | null;
+  /** Marcatore del dispositivo: quello che si bandisce quando cambia l'IP. */
+  dispositivo: string | null;
+  /** Codice ISO del paese, quando il proxy lo fornisce. */
+  paese: string | null;
   agente: string;
   /** Cosa ha deciso il perimetro: passata, respinta, deviata. */
   esito: string;
@@ -344,6 +357,81 @@ function ripulisci(valore: string | null | undefined, massimo: number) {
   return valore.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, massimo);
 }
 
+/**
+ * Parametri il cui valore si può mostrare: identificativi, cursori, filtri
+ * dell'interfaccia. Elenco chiuso di proposito — vedi `mascheraQuery`.
+ */
+const PARAMETRI_IN_CHIARO = new Set([
+  "scheda",
+  "ambito",
+  "funzione",
+  "causa",
+  "stato",
+  "prima",
+  "richiesta",
+  "piano",
+  "tab",
+]);
+
+/**
+ * Nasconde i valori della query string, tenendo i nomi dei parametri.
+ *
+ * La console registra ogni richiesta, non più i soli tentativi respinti, e
+ * questo cambia la natura di ciò che finisce in memoria: prima una query
+ * string ci arrivava solo se conteneva una firma d'attacco, adesso ci
+ * arrivano tutte. Oggi in questo sito non passa nulla di segreto per URL —
+ * il token di collegamento viaggia nel corpo della richiesta, la password
+ * del cantiere pure — ma la difesa non può dipendere da un fatto che resta
+ * vero solo finché nessuno aggiunge un `?reset=...`. Il giorno in cui
+ * succedesse, il segreto finirebbe in un registro letto dal pannello e
+ * spedito su Telegram, e nessuno se ne accorgerebbe.
+ *
+ * L'elenco è chiuso e non un elenco di parole proibite: un filtro che vieta
+ * "token" e "password" lascia passare tutto ciò a cui nessuno ha pensato,
+ * cioè esattamente il caso che conta. I nomi dei parametri restano
+ * visibili, quindi la riga dice ancora *quali* dati sono stati inviati.
+ */
+function mascheraQuery(percorso: string): string {
+  const taglio = percorso.indexOf("?");
+  if (taglio < 0) return percorso;
+
+  const base = percorso.slice(0, taglio);
+  const query = percorso.slice(taglio + 1);
+  if (!query) return base;
+
+  const parti = query
+    .split("&")
+    .slice(0, 12)
+    .map((coppia) => {
+      const uguale = coppia.indexOf("=");
+      if (uguale < 0) return coppia.slice(0, 40);
+
+      const nome = coppia.slice(0, uguale).slice(0, 40);
+      if (!PARAMETRI_IN_CHIARO.has(nome)) return `${nome}=•••`;
+      return `${nome}=${coppia.slice(uguale + 1).slice(0, 60)}`;
+    });
+
+  return `${base}?${parti.join("&")}`;
+}
+
+/**
+ * Metodi contati per nome. Tutto il resto finisce in un secchio solo: il
+ * metodo lo sceglie chi chiama, e una chiave nuova per ogni valore
+ * inventato sarebbe una mappa che cresce finché c'è memoria — il solito
+ * modo di far cadere il processo passando dalla porta che lo osserva.
+ */
+const METODI_NOTI = new Set([
+  "GET",
+  "HEAD",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "OPTIONS",
+  "TRACE",
+  "CONNECT",
+]);
+
 /* -------------------------------- Scrittura ------------------------------- */
 
 function minutoCorrente() {
@@ -393,6 +481,8 @@ export function traccia(dati: {
   percorso: string;
   agente: string | null;
   identita?: Identita;
+  dispositivo?: string | null;
+  paese?: string | null;
 }): { nuovoIp: boolean } {
   const dep = deposito();
   const adesso = Date.now();
@@ -403,7 +493,9 @@ export function traccia(dati: {
   dep.totali.richieste += 1;
 
   const metodo = ripulisci(dati.metodo, 12).toUpperCase() || "?";
-  dep.totali.perMetodo[metodo] = (dep.totali.perMetodo[metodo] ?? 0) + 1;
+  const chiaveMetodo = METODI_NOTI.has(metodo) ? metodo : "ALTRO";
+  dep.totali.perMetodo[chiaveMetodo] =
+    (dep.totali.perMetodo[chiaveMetodo] ?? 0) + 1;
 
   const riga = dep.minuti.get(minuto) ?? {
     totale: 0,
@@ -433,6 +525,8 @@ export function traccia(dati: {
       scheda.telegramId = identita.telegramId;
       scheda.ruolo = identita.ruolo;
     }
+    if (dati.dispositivo) scheda.dispositivo = dati.dispositivo;
+    if (dati.paese) scheda.paese = dati.paese;
   } else {
     dep.ip.set(ip, {
       ip,
@@ -445,6 +539,8 @@ export function traccia(dati: {
       utenteId: identita?.utenteId,
       telegramId: identita?.telegramId,
       ruolo: identita?.ruolo,
+      dispositivo: dati.dispositivo ?? undefined,
+      paese: dati.paese ?? undefined,
     });
     pota(dep.ip, MAX_IP);
   }
@@ -517,6 +613,8 @@ export function annota(riga: {
   ip: string;
   agente?: string | null;
   identita?: Identita;
+  dispositivo?: string | null;
+  paese?: string | null;
   esito: string;
   stato?: number | null;
   tipo?: TipoEvento;
@@ -531,11 +629,22 @@ export function annota(riga: {
     quando: Date.now(),
     livello: riga.livello,
     metodo: ripulisci(riga.metodo, 12).toUpperCase() || "?",
-    percorso: ripulisci(riga.percorso, 300),
+    // La maschera si applica qui e non nei chiamanti: è l'unico punto da
+    // cui passa ogni riga della console, quindi è l'unico in cui la
+    // protezione non può essere dimenticata aggiungendo una chiamata
+    // nuova. Il giornale degli eventi conserva invece l'URL grezzo — lì
+    // serve come prova, ed è un elenco corto di soli tentativi respinti.
+    percorso: mascheraQuery(ripulisci(riga.percorso, 300)),
     ip: riga.ip,
     utenteId: riga.identita?.utenteId ?? null,
     telegramId: riga.identita?.telegramId ?? null,
     ruolo: riga.identita?.ruolo ?? null,
+    // Forma verificata a monte (vedi `identificativoValido`): qui si taglia
+    // e basta, per non far dipendere questa struttura da quel controllo.
+    dispositivo: riga.dispositivo
+      ? ripulisci(riga.dispositivo, 32) || null
+      : null,
+    paese: riga.paese ? ripulisci(riga.paese, 2).toUpperCase() || null : null,
     agente: ripulisci(riga.agente, 160),
     esito: ripulisci(riga.esito, 40),
     stato: riga.stato ?? null,
@@ -639,6 +748,8 @@ export function segnala(evento: {
   agente?: string | null;
   dettaglio?: string;
   identita?: Identita;
+  dispositivo?: string | null;
+  paese?: string | null;
   stato?: number | null;
   durataMs?: number;
 }): boolean {
@@ -676,15 +787,16 @@ export function segnala(evento: {
   // Lo stesso evento compare anche nella console, con la gravità della sua
   // famiglia: chi legge il registro riga per riga non deve saltare su un
   // altro pannello per accorgersi che una richiesta è stata respinta.
-  const identita =
-    evento.identita ??
-    (scheda?.utenteId && scheda.telegramId && scheda.ruolo
-      ? {
-          utenteId: scheda.utenteId,
-          telegramId: scheda.telegramId,
-          ruolo: scheda.ruolo,
-        }
-      : null);
+  //
+  // L'identità è solo quella dichiarata dal chiamante, mai dedotta
+  // dall'indirizzo. Una versione precedente, quando mancava, ripiegava
+  // sull'ultimo account visto da quell'IP: sembra un miglioramento e invece
+  // è la cosa peggiore che si possa fare qui. Dietro un indirizzo condiviso
+  // — una casa, un ufficio, una rete mobile — quel ripiego attribuisce il
+  // tentativo di un anonimo a chi si è collegato per ultimo, e lo fa
+  // proprio nello strumento con cui si decide chi bloccare. Meglio
+  // "anonimo", che è vero, di un nome plausibile e sbagliato.
+  const identita = evento.identita ?? null;
 
   if (identita) {
     const account = dep.utenti.get(identita.utenteId);
@@ -698,6 +810,12 @@ export function segnala(evento: {
     ip: evento.ip,
     agente: evento.agente,
     identita,
+    // Ripiego sulla scheda dell'indirizzo: a differenza dell'identità —
+    // che non si deduce mai, vedi sopra — questi due non attribuiscono
+    // nulla a nessuno. Dicono da dove è arrivata la richiesta, ed è la
+    // stessa informazione qualunque sia la persona dietro.
+    dispositivo: evento.dispositivo ?? scheda?.dispositivo ?? null,
+    paese: evento.paese ?? scheda?.paese ?? null,
     esito: "respinta",
     stato: evento.stato ?? null,
     tipo: evento.tipo,
@@ -1132,9 +1250,21 @@ export function vigila() {
       ? precedenti.reduce((t, v) => t + v, 0) / precedenti.length
       : 0;
 
+  /**
+   * Potatura delle quarantene scadute.
+   *
+   * Finora una voce spariva solo quando quell'indirizzo tornava a bussare e
+   * `inQuarantena` la trovava scaduta: chi veniva bloccato e si arrendeva
+   * restava in mappa per sempre. Con una raffica da molte sorgenti — cioè
+   * il caso che genera quarantene a decine — la mappa cresceva senza tetto,
+   * ed è l'unica struttura del modulo che non ne aveva uno. Adesso che
+   * questo giro la percorre ogni venti secondi, il costo sarebbe anche in
+   * tempo. Si pulisce qui, dove si sta già scorrendo.
+   */
   let attive = 0;
-  for (const voce of dep.quarantena.values()) {
+  for (const [indirizzo, voce] of dep.quarantena) {
     if (voce.fino > adesso) attive += 1;
+    else dep.quarantena.delete(indirizzo);
   }
 
   const minaccia = valutaMinaccia({

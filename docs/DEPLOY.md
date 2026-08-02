@@ -662,22 +662,12 @@ Se preferisci procedere a mano:
 
 ```bash
 cd /var/www/phantomlab
-git pull --ff-only            # MAI con sudo: vedi la nota qui sotto
+sudogit pull
 npm ci
 npx prisma migrate deploy
 bash deploy/build.sh          # NON solo `npm run build`
 pm2 reload phantomlab --update-env
 ```
-
-> Nessun comando di questa sequenza va eseguito con `sudo`. Un `sudo git pull` scrive i file aggiornati come `root`: il `npm ci` successivo non riesce più a rimuovere `node_modules` e si ferma con `EACCES: permission denied, rmdir`, lasciando le dipendenze a metà. Da lì anche `npx prisma` fallisce con `prisma: not found`, sia nella migrazione sia dentro `build.sh`, e l'app resta alla build precedente.
->
-> Se è già successo, ridai la proprietà della cartella all'utente dell'applicazione e ripeti l'aggiornamento:
->
-> ```bash
-> cd /var/www/phantomlab
-> sudo chown -R "$(whoami):$(whoami)" .
-> bash deploy/aggiorna.sh
-> ```
 
 ### Aggiornamento con i codici brevi e la messaggistica
 
@@ -689,6 +679,37 @@ npm run assegna-codici
 ```
 
 Lo script tocca solo le righe con codice nullo, quindi rieseguirlo non fa danni.
+
+### Bandiera del paese nella sorveglianza
+
+La console mostra una bandiera accanto a ogni indirizzo. Il paese **non** viene calcolato dall'applicazione: si legge da un'intestazione che deve impostare Nginx. Senza quella, tutte le righe restano con la bandiera bianca — è voluto, perché una provenienza indovinata in un pannello con cui si decide chi bloccare è peggio di nessuna provenienza.
+
+Per accenderla serve il modulo GeoIP2 e il database gratuito GeoLite2:
+
+```bash
+sudo apt install -y libnginx-mod-http-geoip2 geoipupdate
+# GeoLite2 richiede un account gratuito MaxMind: metti le credenziali in
+# /etc/GeoIP.conf, poi
+sudo geoipupdate
+```
+
+Poi, in `/etc/nginx/nginx.conf` dentro il blocco `http`:
+
+```nginx
+geoip2 /usr/share/GeoIP/GeoLite2-Country.mmdb {
+    $geoip2_paese country iso_code;
+}
+```
+
+e in `deploy/nginx.conf`, accanto agli altri `proxy_set_header`:
+
+```nginx
+proxy_set_header X-Geo-Country $geoip2_paese;
+```
+
+L'applicazione accetta anche `CF-IPCountry`, quindi dietro Cloudflare funziona senza configurare nulla.
+
+> Il marcatore **V** (probabile VPN o datacenter) non dipende da GeoIP: si ricava dal nome inverso dell'indirizzo, che l'applicazione risolve da sé e tiene in cache per sei ore. Non richiede alcuna configurazione, ed è un'euristica — passando il puntatore sulla V si legge il nome che l'ha fatta scattare.
 
 ### Notifiche in tempo reale (SSE)
 

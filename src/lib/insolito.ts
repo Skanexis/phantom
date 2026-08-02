@@ -97,7 +97,12 @@ export function valutaRichiesta(contesto: ContestoRichiesta): Giudizio {
     if (ORDINE[candidato] > ORDINE[livello]) livello = candidato;
   };
 
-  const agente = contesto.agente ?? "";
+  // Tagliato prima di passarlo alle espressioni regolari: lo user-agent
+  // arriva da fuori e Node accetta intestazioni fino a sedici kilobyte.
+  // Le regole qui sotto sono lineari, quindi non c'è un'esplosione
+  // combinatoria da temere, ma scandire sedicimila caratteri quattro volte
+  // per ogni richiesta di una raffica è lavoro regalato all'attaccante.
+  const agente = (contesto.agente ?? "").slice(0, 300);
   const metodo = contesto.metodo.toUpperCase();
 
   if (AGENTI_SCANNER.test(agente)) {

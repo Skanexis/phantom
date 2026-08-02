@@ -490,7 +490,13 @@ export default async function PannelloAdmin() {
                   creatoIl: utente.creatoIl.toISOString(),
                   bloccato: utente.bloccato,
                   bloccatoIl: utente.bloccatoIl?.toISOString() ?? null,
-                  motivoBlocco: utente.motivoBlocco,
+                  // Il motivo è una nota fra chi decide i blocchi, spesso
+                  // con dentro come si è arrivati a scoprire un abuso. Che
+                  // l'account sia bloccato lo vede tutto lo staff, perché
+                  // serve a rispondere al cliente; il perché no. Filtrato
+                  // qui e non nascosto nell'interfaccia: quello che non si
+                  // deve vedere non deve nemmeno essere spedito al browser.
+                  motivoBlocco: bloccaAccount ? utente.motivoBlocco : null,
                   abbonamenti: utente.abbonamentiUtente.map((voce) => ({
                     id: voce.id,
                     codice: voce.codice,
