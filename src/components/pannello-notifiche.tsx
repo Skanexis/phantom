@@ -7,6 +7,10 @@ import { vibra } from "@/components/telegram-provider";
 import { useFlusso } from "@/components/flusso-provider";
 import { tempoRelativo } from "@/lib/tempo";
 import { Etichetta, Freccia } from "@/components/ui";
+import {
+  caricaNotifiche,
+  scartaNotificheInCache,
+} from "@/lib/notifiche-client";
 
 type Notifica = {
   id: string;
@@ -43,19 +47,16 @@ export function PannelloNotifiche({
     () =>
       ascolta((evento) => {
         if (evento.tipo !== "notifica" && evento.tipo !== "messaggio") return;
-        fetch("/api/notifiche")
-          .then((risposta) => risposta.json())
-          .then((dati) => {
-            if (!Array.isArray(dati?.notifiche)) return;
-            setNotifiche((precedenti) => {
-              const idFreschi = new Set(
-                dati.notifiche.map((n: Notifica) => n.id),
-              );
-              const restanti = precedenti.filter((n) => !idFreschi.has(n.id));
-              return [...dati.notifiche, ...restanti];
-            });
-          })
-          .catch(() => undefined);
+        // Stessa lettura dell'anteprima nella barra: allo stesso evento
+        // reagiscono entrambi, e la richiesta va fatta una volta sola.
+        void caricaNotifiche().then((dati) => {
+          if (!dati) return;
+          setNotifiche((precedenti) => {
+            const idFreschi = new Set(dati.notifiche.map((n) => n.id));
+            const restanti = precedenti.filter((n) => !idFreschi.has(n.id));
+            return [...dati.notifiche, ...restanti];
+          });
+        });
       }),
     [ascolta],
   );
@@ -88,6 +89,8 @@ export function PannelloNotifiche({
       precedenti.map((n) => ({ ...n, letta: true })),
     );
     impostaNonLette(0);
+    // La copia condivisa mostra ancora tutto da leggere.
+    scartaNotificheInCache();
 
     try {
       const risposta = await fetch("/api/notifiche", {

@@ -286,17 +286,24 @@ body {
 
 /* --------------------------------- Carosello --------------------------------- */
 
-/* Scorrimento orizzontale con aggancio: ogni carta si ferma allineata,
-   niente posizioni intermedie che tagliano una scheda a metà.
+/* Carta a fuoco sempre al centro della fascia, con le vicine che sbirciano
+   ai lati: l'aggancio è "center", non "start", così su ogni larghezza di
+   schermo l'occhio ha un solo punto di riposo invece di una fila che
+   comincia da un bordo.
+   Il riempimento laterale vale metà dello spazio avanzato: senza, la prima
+   e l'ultima carta non riescono a raggiungere il centro e restano
+   incollate al bordo, con l'aggancio che se le rimbalza.
    touch-action: pan-x pan-y lascia al browser entrambi gli assi: con solo
    pan-x, il gesto verticale non funzionava affatto sopra una carta — su
    mobile la carta riempie quasi tutto lo schermo, quindi ogni tentativo di
    scorrere la pagina in giù ci finiva sopra e restava bloccato. */
 .carosello {
+  --carta: min(84vw, 340px);
   display: flex;
+  gap: 1.25rem;
   overflow-x: auto;
+  padding-inline: max(1rem, calc((100% - var(--carta)) / 2));
   scroll-snap-type: x mandatory;
-  scroll-padding-inline: 1rem;
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x pan-y;
@@ -304,7 +311,35 @@ body {
 
 @media (min-width: 640px) {
   .carosello {
-    scroll-padding-inline: 2rem;
+    --carta: 360px;
+    gap: 1.5rem;
+  }
+}
+
+/* scroll-snap-stop: always impedisce di scavalcare più carte con un solo
+   gesto deciso: una spinta, una carta. È la differenza fra "scorre" e
+   "scatta da una all'altra". */
+.carosello-voce {
+  flex: 0 0 var(--carta);
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+}
+
+/* Profondità continua, non a due stati: --vicinanza vale 1 quando la carta
+   è esattamente al centro e 0 quando dista una carta piena, e viene
+   riscritta a ogni fotogramma di scorrimento. Scala e opacità la seguono
+   senza transizione CSS — è il dito a muoverle, non un timer, ed è questo
+   che rende il gesto continuo invece che a scatti. */
+.carta-piano {
+  transform: scale(calc(0.94 + 0.06 * var(--vicinanza, 1)));
+  opacity: calc(0.55 + 0.45 * var(--vicinanza, 1));
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .carta-piano {
+    transform: none;
+    opacity: 1;
   }
 }
 
@@ -327,8 +362,33 @@ body {
   animation: pulso-evidenzia 2.2s ease-out;
 }
 
-.carosello-voce {
-  scroll-snap-align: start;
+/* ---------------------------- Caricamento pagina ---------------------------- */
+
+/* Il marchio resta invisibile per il primo tratto del ciclo: una
+   navigazione che risolve in una manciata di decine di millisecondi non
+   deve produrre un lampo di contenuto — solo chi aspetta davvero un po'
+   vede comparire qualcosa, ed è proprio quando serve un riscontro. */
+@keyframes comparsa-ritardata {
+  0%,
+  28% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  48% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  74% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.marchio-caricamento {
+  animation: comparsa-ritardata 1.1s ease-in-out infinite;
 }
 
 /* Selezione coerente con l'accento. */
@@ -347,8 +407,13 @@ body {
   .evidenziata,
   /* animate-ping è una classe di Tailwind: non passa da useReducedMotion
      e senza questa riga continuerebbe a pulsare. */
-  .animate-ping {
+  .animate-ping,
+  .marchio-caricamento {
     animation: none;
+    /* Senza il ciclo che lo porta a opacity:1, deve restare visibile da
+       subito: qui la riduzione del movimento non deve nascondere il
+       riscontro di caricamento, solo il suo pulsare. */
+    opacity: 1;
   }
 
   *,

@@ -92,10 +92,19 @@ if (!usernameBot) {
   errore('TELEGRAM_BOT_USERNAME non deve iniziare con "@".');
 }
 
-if (!process.env.TELEGRAM_WEBHOOK_SECRET) {
-  avviso(
-    "TELEGRAM_WEBHOOK_SECRET mancante: il webhook accetterebbe chiamate " +
-      "da chiunque. Genera con: openssl rand -hex 32",
+const segretoWebhook = process.env.TELEGRAM_WEBHOOK_SECRET;
+if (!segretoWebhook) {
+  // Da avviso a errore: il webhook non accetta più chiamate senza segreto,
+  // quindi la variabile mancante non è più un rischio silenzioso ma un
+  // guasto certo — il bot smette di rispondere e i collegamenti falliscono.
+  errore(
+    "TELEGRAM_WEBHOOK_SECRET mancante: il webhook risponde 503 e il bot " +
+      "non riceve nulla. Genera con: openssl rand -hex 32\n" +
+      "      Poi registralo su Telegram con secret_token nella setWebhook.",
+  );
+} else if (segretoWebhook.length < 16) {
+  errore(
+    `TELEGRAM_WEBHOOK_SECRET troppo corto (${segretoWebhook.length} caratteri, minimo 16).`,
   );
 }
 

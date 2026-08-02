@@ -56,7 +56,27 @@ module.exports = {
         HOSTNAME: "127.0.0.1",
       },
 
-      max_memory_restart: "500M",
+      /**
+       * Il tetto era 500M, ed è troppo basso per come si comporta l'app
+       * sotto carico. Misurato: a riposo il processo sta sui 110 MB, ma
+       * una raffica di richieste alla homepage — che è renderizzata a ogni
+       * visita e interroga il database — spinge la memoria molto oltre,
+       * perché il garbage collector non fa in tempo a rientrare finché la
+       * pressione continua. A quiete tornata la memoria si riprende da
+       * sola: non è una perdita, è ritardo di raccolta.
+       *
+       * Con il tetto a 500M il riavvio scattava proprio durante un picco,
+       * ed è il momento peggiore: cadono tutte le connessioni SSE aperte,
+       * i clienti collegati smettono di ricevere notifiche, e il quadro
+       * della sorveglianza — che vive in memoria — si azzera cancellando
+       * le tracce di ciò che stava succedendo. Peggio ancora, con
+       * max_restarts a 10 una serie di riavvii consecutivi fa arrendere
+       * PM2 e il sito resta giù del tutto.
+       *
+       * 1 GB lascia margine al picco e continua a fermare una vera perdita
+       * di memoria, che invece cresce senza mai rientrare.
+       */
+      max_memory_restart: "1G",
       autorestart: true,
       // Evita cicli di riavvio infiniti se l'app non parte (es. env errate).
       max_restarts: 10,

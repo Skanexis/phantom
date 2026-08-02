@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTelegram, vibra } from "@/components/telegram-provider";
@@ -9,6 +9,10 @@ import { Avatar } from "@/components/avatar";
 import { Icona } from "@/components/icone";
 import { Freccia } from "@/components/ui";
 import { tempoRelativo } from "@/lib/tempo";
+import {
+  caricaNotifiche,
+  scartaNotificheInCache,
+} from "@/lib/notifiche-client";
 
 type Notifica = {
   id: string;
@@ -18,6 +22,10 @@ type Notifica = {
   creatoIl: string;
   url?: string | null;
 };
+
+/** Altezza della barra di navigazione (`h-14`): il pannello si appoggia
+ *  esattamente sotto il suo bordo inferiore, senza fessure. */
+const ALTEZZA_BARRA = 56;
 
 /**
  * Avatar e campanella al posto del link "Account" in navigazione: l'avatar
@@ -31,14 +39,70 @@ export function NotificheNav() {
   const [aperto, setAperto] = useState(false);
   const [notifiche, setNotifiche] = useState<Notifica[]>([]);
   const contenitore = useRef<HTMLDivElement>(null);
+  const [riquadro, setRiquadro] = useState<{
+    left: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
 
+  /**
+   * Posizione calcolata a mano invece che con `right`/`vw` in CSS.
+   *
+   * Con contenuto intrinsecamente più largo dello schermo in qualunque
+   * punto della pagina (anche se poi tagliato con overflow-hidden, come il
+   * nastro scorrevole dell'hero), Chromium può calcolare il "layout
+   * viewport" più largo di quello visibile — e ogni valore relativo alla
+   * larghezza del viewport (vw, o "right" su un elemento fixed) si sposta
+   * di conseguenza. `left`, misurato dall'origine sinistra, e
+   * `document.documentElement.clientWidth` restano invece corretti in
+   * ogni caso: per questo il pannello si posiziona così invece che con le
+   * classi Tailwind `right-*`/`vw`.
+   */
+  useLayoutEffect(() => {
+    if (!aperto) return;
+
+    function aggiorna() {
+      const schermo = document.documentElement.clientWidth;
+      const alto = window.innerHeight;
+
+      // Su schermo stretto il pannello attraversa lo schermo da bordo a
+      // bordo invece di pendere dalla campanella: agganciato all'icona
+      // restava una colonna di poche lettere, con titolo e testo spezzati
+      // parola per parola. L'altezza è comunque limitata alla porzione
+      // sotto la barra, e l'elenco scorre al suo interno: così il pannello
+      // non esce mai dallo schermo, per lungo che sia il contenuto.
+      if (schermo < 640) {
+        setRiquadro({
+          left: 0,
+          width: schermo,
+          maxHeight: Math.max(200, alto - ALTEZZA_BARRA - 16),
+        });
+        return;
+      }
+
+      const margine = 24;
+      const larghezza = Math.min(schermo - margine * 2, 420);
+      setRiquadro({
+        left: Math.max(margine, schermo - margine - larghezza),
+        width: larghezza,
+        maxHeight: Math.max(200, alto - ALTEZZA_BARRA - 32),
+      });
+    }
+
+    // Prima del paint: senza, il pannello comparirebbe per un fotogramma
+    // nella posizione sbagliata (o senza larghezza) prima di scattare.
+    aggiorna();
+    window.addEventListener("resize", aggiorna);
+    return () => window.removeEventListener("resize", aggiorna);
+  }, [aperto]);
+
+  // Lettura condivisa con il pannello dell'area personale: allo stesso
+  // evento reagiscono entrambi, e senza la condivisione partirebbero due
+  // richieste identiche.
   const carica = () => {
-    fetch("/api/notifiche")
-      .then((risposta) => risposta.json())
-      .then((dati) => {
-        if (Array.isArray(dati?.notifiche)) setNotifiche(dati.notifiche);
-      })
-      .catch(() => undefined);
+    void caricaNotifiche().then((dati) => {
+      if (dati) setNotifiche(dati.notifiche);
+    });
   };
 
   // Precaricate all'accesso: aprendo il pannello deve comparire subito
@@ -80,6 +144,8 @@ export function NotificheNav() {
       precedenti.map((n) => (n.id === id ? { ...n, letta: true } : n)),
     );
     impostaNonLette(Math.max(0, nonLette - 1));
+    // La copia condivisa non riflette più lo stato appena cambiato.
+    scartaNotificheInCache();
     fetch("/api/notifiche", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -89,7 +155,7 @@ export function NotificheNav() {
 
   if (!utente) return null;
 
-  const anteprima = notifiche.slice(0, 2);
+  const anteprima = notifiche.slice(0, 3);
 
   return (
     <div className="flex items-stretch">
@@ -132,29 +198,62 @@ export function NotificheNav() {
         </button>
 
         <AnimatePresence>
+          {/* Fondale sotto al pannello ma sopra la pagina. La barra è
+              `z-50`, quindi resta scoperta: la campanella continua a
+              ricevere il tocco e richiude il pannello come ci si aspetta. */}
+          {aperto && (
+            <motion.button
+              type="button"
+              aria-label="Chiudi le notifiche"
+              onClick={() => setAperto(false)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="fixed inset-0 z-40 bg-black/60 sm:bg-black/30"
+            />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
         {aperto && (
           <motion.div
-            initial={{ opacity: 0, y: -8 }}
+            initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.18 }}
-            className="absolute right-0 top-full z-50 w-[min(92vw,380px)] border border-[var(--bordo)] bg-[var(--sfondo)] shadow-lg"
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            // "left" in px calcolato in JS, non "right"/vw in CSS: vedi il
+            // commento sopra "riquadro" per il perché.
+            style={{
+              left: riquadro?.left,
+              width: riquadro?.width,
+              maxHeight: riquadro?.maxHeight,
+            }}
+            // A tutto schermo il bordo laterale cadrebbe fuori dallo
+            // schermo: sotto sm resta solo quello inferiore.
+            className="fixed top-14 z-50 flex flex-col border-b border-[var(--bordo)] bg-[var(--sfondo)] shadow-lg sm:border"
           >
-            <div className="px-5 pt-4 pb-2">
-              <span className="mono text-[12px] uppercase tracking-[0.12em] text-[var(--testo-tenue)]">
+            <div className="flex shrink-0 items-center justify-center border-b border-[var(--bordo)] px-5 py-3.5">
+              <span className="mono text-[11px] uppercase tracking-[0.14em] text-[var(--testo-tenue)]">
                 {nonLette > 0 ? `${nonLette} da leggere` : "Notifiche"}
               </span>
             </div>
 
             {anteprima.length === 0 ? (
-              <p className="px-5 py-7 text-[14px] text-[var(--testo-tenue)]">
+              <p className="px-5 py-10 text-center text-[14px] text-[var(--testo-tenue)]">
                 Nessuna notifica per ora.
               </p>
             ) : (
-              <div className="flex flex-col">
-                {anteprima.map((notifica, indice) => {
+              // min-h-0 è ciò che rende scorrevole l'elenco: senza, il
+              // figlio flessibile si allarga oltre il tetto di altezza
+              // invece di comprimersi e mostrare la propria barra.
+              <div className="nascondi-barra flex min-h-0 flex-1 flex-col overflow-y-auto">
+                {anteprima.map((notifica) => {
                   const contenuto = (
-                    <>
+                    // Colonna centrata: da bordo a bordo su un telefono
+                    // largo il testo resterebbe schiacciato tutto a
+                    // sinistra con mezzo pannello vuoto a destra.
+                    <span className="mx-auto flex w-full max-w-[440px] gap-3">
                       <span
                         aria-hidden="true"
                         className={`mt-2 h-2 w-2 shrink-0 rounded-full ${
@@ -163,30 +262,26 @@ export function NotificheNav() {
                             : "bg-[var(--accento)]"
                         }`}
                       />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <p className="truncate text-[15px] font-semibold tracking-[-0.01em]">
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-baseline justify-between gap-2">
+                          <span className="truncate text-[15px] font-semibold tracking-[-0.01em]">
                             {notifica.titolo}
-                          </p>
+                          </span>
                           <span className="mono shrink-0 text-[10.5px] text-[var(--testo-debole)]">
                             {tempoRelativo(notifica.creatoIl)}
                           </span>
-                        </div>
-                        <p className="mt-1 line-clamp-2 text-[13.5px] leading-[1.5] text-[var(--testo-tenue)]">
+                        </span>
+                        <span className="mt-1 line-clamp-2 block text-[13.5px] leading-[1.5] text-[var(--testo-tenue)]">
                           {notifica.testo}
-                        </p>
-                      </div>
-                    </>
+                        </span>
+                      </span>
+                    </span>
                   );
 
                   return (
                     <div
                       key={notifica.id}
-                      className={
-                        indice === 1
-                          ? "max-[380px]:hidden"
-                          : undefined
-                      }
+                      className="border-b border-[var(--bordo)] last:border-b-0"
                     >
                       {notifica.url ? (
                         <Link
@@ -195,12 +290,12 @@ export function NotificheNav() {
                             segnaLetta(notifica.id);
                             setAperto(false);
                           }}
-                          className="flex gap-3 px-5 py-3.5 transition-colors hover:bg-[var(--sfondo-alt)]"
+                          className="flex px-5 py-4 transition-colors hover:bg-[var(--sfondo-alt)]"
                         >
                           {contenuto}
                         </Link>
                       ) : (
-                        <div className="flex gap-3 px-5 py-3.5">{contenuto}</div>
+                        <div className="flex px-5 py-4">{contenuto}</div>
                       )}
                     </div>
                   );
@@ -211,7 +306,7 @@ export function NotificheNav() {
             <Link
               href="/area-personale?scheda=notifiche"
               onClick={() => setAperto(false)}
-              className="mono mt-1 flex min-h-12 items-center justify-center gap-2 px-4 py-3 text-[12px] uppercase tracking-[0.12em] text-[var(--testo-tenue)] transition-colors hover:bg-[var(--sfondo-alt)] hover:text-[var(--accento)]"
+              className="mono flex min-h-12 shrink-0 items-center justify-center gap-2 border-t border-[var(--bordo)] px-4 py-3.5 text-[12px] uppercase tracking-[0.12em] text-[var(--testo-tenue)] transition-colors hover:bg-[var(--sfondo-alt)] hover:text-[var(--accento)]"
             >
               Guarda tutte le notifiche
               <Freccia className="h-3 w-3" />

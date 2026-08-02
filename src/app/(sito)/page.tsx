@@ -1,10 +1,8 @@
 import Link from "next/link";
-import { Navigazione } from "@/components/navigazione";
 import { SezioneHero } from "@/components/sezione-hero";
 import { Rivela, Scaglionato, Voce } from "@/components/animazioni";
 import { Icona } from "@/components/icone";
 import { FaqLista } from "@/components/faq-lista";
-import { PiedePagina } from "@/components/piede-pagina";
 import { CaroselloAbbonamenti } from "@/components/carosello-abbonamenti";
 import {
   BottonePieno,
@@ -14,7 +12,28 @@ import {
 } from "@/components/ui";
 import { caricaDatiHomepage, formattaPrezzo, testo } from "@/lib/contenuti";
 
-export const dynamic = "force-dynamic";
+/**
+ * La homepage non dipende da chi la guarda.
+ *
+ * Era `force-dynamic`, quindi ogni singola visita rieseguiva sette
+ * interrogazioni al database e ricostruiva l'intera pagina da capo — per
+ * ottenere, visita dopo visita, esattamente lo stesso HTML. Il contenuto
+ * (servizi, piani, vantaggi, FAQ, contatti, testi) cambia solo quando
+ * qualcuno lo modifica dal pannello, e quelle azioni chiamano già
+ * `revalidatePath("/")`: la pagina si rigenera nell'istante in cui il
+ * contenuto cambia, non a ogni visitatore.
+ *
+ * Niente qui dentro guarda la sessione: la navigazione e l'orologio sono
+ * componenti client, che si montano nel browser. Il cantiere non c'entra —
+ * quando SITO_CHIUSO è attivo il proxy devia la richiesta prima ancora di
+ * arrivare a questa pagina, cache o non cache.
+ *
+ * L'ora di validità è una rete di sicurezza, non il meccanismo principale:
+ * serve solo se una rigenerazione andasse persa, per esempio perché la
+ * pagina è stata modificata direttamente a database senza passare dal
+ * pannello.
+ */
+export const revalidate = 3600;
 
 const ambitiSuMisura = [
   { etichetta: "Sito web", href: "/richiesta?ambito=SITO_WEB", codice: "01" },
@@ -30,11 +49,8 @@ export default async function Home() {
   const automazioneInclusa = automazioni.find((a) => !a.selezionabile);
 
   return (
-    <div className="flex min-h-full flex-col">
-      <Navigazione />
-
-      <main className="flex-1">
-        <SezioneHero
+    <main className="flex-1">
+      <SezioneHero
           badge={testo(contenuti, "hero.badge")}
           titolo={testo(contenuti, "hero.titolo")}
           sottotitolo={testo(contenuti, "hero.sottotitolo")}
@@ -331,11 +347,8 @@ export default async function Home() {
               </BottonePieno>
             </div>
           </Rivela>
-        </Sezione>
-      </main>
-
-      <PiedePagina />
-    </div>
+      </Sezione>
+    </main>
   );
 }
 

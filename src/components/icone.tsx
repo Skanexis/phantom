@@ -141,6 +141,90 @@ export const Icone = {
       <path d="M10 18a2 2 0 0 0 4 0" />
     </svg>
   ),
+
+  /* --- Sorveglianza: una per sezione del pannello di monitoraggio --- */
+
+  /** Battito del traffico: stato generale del perimetro. */
+  impulso: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <path d="M2 12h5l3-8 4 16 3-8h5" />
+    </svg>
+  ),
+  /** Istogramma: il traffico minuto per minuto. */
+  grafico: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <path d="M3 21V3M3 21h18" />
+      <path d="M7 21v-7M12 21V8M17 21v-11" />
+    </svg>
+  ),
+  /** Macchina: salute dei sottosistemi. */
+  server: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <rect x="3" y="4" width="18" height="7" />
+      <rect x="3" y="13" width="18" height="7" />
+      <path d="M7 7.5h.01M7 16.5h.01" />
+    </svg>
+  ),
+  /** Cilindri: il database. */
+  database: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z" />
+      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
+      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+    </svg>
+  ),
+  /** Registro: il giornale degli eventi. */
+  registro: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <rect x="4" y="3" width="16" height="18" />
+      <path d="M8 8h8M8 12h8M8 16h5" />
+    </svg>
+  ),
+  /** Persone: utenti collegati in questo momento. */
+  utenti: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
+      <circle cx="9" cy="7" r="3" />
+      <path d="M16 3.5a3 3 0 0 1 0 7M17 21v-2a4 4 0 0 0-2-3.4" />
+    </svg>
+  ),
+  /** Mirino: sonde e scansioni automatiche. */
+  mirino: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+    </svg>
+  ),
+  /** Divieto: indirizzi in quarantena. */
+  divieto: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M5.6 5.6l12.8 12.8" />
+    </svg>
+  ),
+  /** Nodi collegati: gli indirizzi visti. */
+  rete: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <rect x="9" y="2" width="6" height="5" />
+      <rect x="2" y="17" width="6" height="5" />
+      <rect x="16" y="17" width="6" height="5" />
+      <path d="M12 7v5M5 17v-2h14v2" />
+    </svg>
+  ),
+  /** Clessidra: durata, attività, tempi. */
+  orologio: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  ),
+  /** Scudo con allarme: eventi di sicurezza gravi. */
+  allarme: (p: ProprietaIcona) => (
+    <svg {...base} {...p}>
+      <path d="M12 2 4 5v7c0 5 3.4 8.8 8 10 4.6-1.2 8-5 8-10V5z" />
+      <path d="M12 8v4M12 15h.01" />
+    </svg>
+  ),
 } as const;
 
 export type NomeIcona = keyof typeof Icone;

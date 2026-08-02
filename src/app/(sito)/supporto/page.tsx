@@ -1,7 +1,5 @@
 import Link from "next/link";
 import { FormSupporto } from "@/components/form-supporto";
-import { Navigazione } from "@/components/navigazione";
-import { PiedePagina } from "@/components/piede-pagina";
 import { Rivela } from "@/components/animazioni";
 import { AccessoTelegram } from "@/components/accesso-telegram";
 import { Etichetta } from "@/components/ui";
@@ -20,24 +18,20 @@ export default async function PaginaSupporto() {
 
   if (!utente) {
     return (
-      <div className="flex min-h-full flex-col">
-        <Navigazione />
-        <main className="colonne relative mx-auto flex w-full max-w-[1400px] flex-1 items-center justify-center px-4 py-16 sm:px-8 sm:py-24">
-          <div className="w-full max-w-lg">
-            <AccessoTelegram
-              titolo="Accedi al tuo account"
-              descrizione="Collega il tuo profilo Telegram: il supporto diretto è incluso in ogni abbonamento attivo."
-            />
-            <Link
-              href="/"
-              className="mono mt-6 inline-flex min-h-11 items-center text-[11px] uppercase tracking-[0.12em] text-[var(--testo-tenue)] transition-colors hover:text-[var(--accento)]"
-            >
-              ← Torna alla home
-            </Link>
-          </div>
-        </main>
-        <PiedePagina />
-      </div>
+      <main className="colonne relative mx-auto flex w-full max-w-[1400px] flex-1 items-center justify-center px-4 py-16 sm:px-8 sm:py-24">
+        <div className="w-full max-w-lg">
+          <AccessoTelegram
+            titolo="Accedi al tuo account"
+            descrizione="Collega il tuo profilo Telegram: il supporto diretto è incluso in ogni abbonamento attivo."
+          />
+          <Link
+            href="/"
+            className="mono mt-6 inline-flex min-h-11 items-center text-[11px] uppercase tracking-[0.12em] text-[var(--testo-tenue)] transition-colors hover:text-[var(--accento)]"
+          >
+            ← Torna alla home
+          </Link>
+        </div>
+      </main>
     );
   }
 
@@ -49,48 +43,41 @@ export default async function PaginaSupporto() {
 
   if (!attiva) {
     return (
-      <div className="flex min-h-full flex-col">
-        <Navigazione />
-        <main className="colonne relative mx-auto flex w-full max-w-[1400px] flex-1 items-center justify-center px-4 py-16 sm:px-8 sm:py-24">
-          <div className="crocini relative max-w-lg border border-[var(--bordo)] p-8 sm:p-10">
-            <Etichetta className="text-[var(--accento)]">Supporto</Etichetta>
-            <h1 className="display mt-5 text-[32px] sm:text-[42px]">
-              Riservato a chi ha
-              <br />
-              un abbonamento attivo
-            </h1>
-            <p className="mono mt-4 text-[12.5px] leading-[1.7] text-[var(--testo-tenue)]">
-              Il supporto diretto è incluso in ogni piano: problemi, domande
-              o idee di miglioramento, con risposta del team sul bot
-              Telegram. Attivane uno per iniziare.
-            </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link
-                href="/#abbonamenti"
-                className="mono spinta border border-[var(--bordo-pieno)] bg-[var(--bordo-pieno)] px-5 py-3.5 text-center text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--testo-inverso)]"
-              >
-                Scopri i piani
-              </Link>
-              <Link
-                href="/area-personale"
-                className="mono spinta border border-[var(--bordo)] px-5 py-3.5 text-center text-[12px] uppercase tracking-[0.14em]"
-              >
-                Area personale
-              </Link>
-            </div>
+      <main className="colonne relative mx-auto flex w-full max-w-[1400px] flex-1 items-center justify-center px-4 py-16 sm:px-8 sm:py-24">
+        <div className="crocini relative max-w-lg border border-[var(--bordo)] p-8 sm:p-10">
+          <Etichetta className="text-[var(--accento)]">Supporto</Etichetta>
+          <h1 className="display mt-5 text-[32px] sm:text-[42px]">
+            Riservato a chi ha
+            <br />
+            un abbonamento attivo
+          </h1>
+          <p className="mono mt-4 text-[12.5px] leading-[1.7] text-[var(--testo-tenue)]">
+            Il supporto diretto è incluso in ogni piano: problemi, domande
+            o idee di miglioramento, con risposta del team sul bot
+            Telegram. Attivane uno per iniziare.
+          </p>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <Link
+              href="/#abbonamenti"
+              className="mono spinta border border-[var(--bordo-pieno)] bg-[var(--bordo-pieno)] px-5 py-3.5 text-center text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--testo-inverso)]"
+            >
+              Scopri i piani
+            </Link>
+            <Link
+              href="/area-personale"
+              className="mono spinta border border-[var(--bordo)] px-5 py-3.5 text-center text-[12px] uppercase tracking-[0.14em]"
+            >
+              Area personale
+            </Link>
           </div>
-        </main>
-        <PiedePagina />
-      </div>
+        </div>
+      </main>
     );
   }
 
   return (
-    <div className="flex min-h-full flex-col">
-      <Navigazione />
-
-      <main className="colonne relative mx-auto w-full max-w-[1400px] flex-1 px-4 py-12 sm:px-8 sm:py-20">
-        <div className="mx-auto w-full max-w-2xl">
+    <main className="colonne relative mx-auto w-full max-w-[1400px] flex-1 px-4 py-12 sm:px-8 sm:py-20">
+      <div className="mx-auto w-full max-w-2xl">
           <Rivela>
             <Link
               href="/area-personale"
@@ -123,8 +110,5 @@ export default async function PaginaSupporto() {
           </div>
         </div>
       </main>
-
-      <PiedePagina />
-    </div>
   );
 }

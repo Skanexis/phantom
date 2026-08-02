@@ -13,6 +13,7 @@ import {
   etichetteStatoAbbonamento,
 } from "@/lib/telegram-bot";
 import { escapeHtml, notificaUtente } from "@/lib/notifiche";
+import { liberaIp } from "@/lib/sorveglianza";
 import { dataBreve, scadenzaDaPeriodo } from "@/lib/abbonamenti";
 import { linkRichiesta } from "@/lib/richieste";
 import { LUNGHEZZA_MASSIMA, inviaMessaggioAdmin } from "@/lib/messaggi";
@@ -686,6 +687,25 @@ export async function eliminaContatto(dati: FormData) {
   if (!id) return;
   await prisma.contatto.delete({ where: { id } });
   rinfresca();
+}
+
+/* ------------------------------- Sorveglianza ------------------------------- */
+
+/**
+ * Toglie un indirizzo dalla quarantena automatica.
+ *
+ * Serve perché la quarantena sbaglia: dietro un unico IP pubblico può
+ * esserci un ufficio intero, e basta una persona che insiste su una
+ * password dimenticata per chiudere fuori i colleghi. Senza questo
+ * comando l'unico rimedio sarebbe aspettare mezz'ora o riavviare il
+ * processo — cioè far cadere le notifiche di tutti per liberarne uno.
+ */
+export async function liberaIndirizzo(dati: FormData) {
+  await assicuraSviluppatore();
+  const ip = stringa(dati, "ip");
+  if (!ip) return;
+  liberaIp(ip);
+  revalidatePath("/admin");
 }
 
 /* ----------------------------------- Ruoli ---------------------------------- */

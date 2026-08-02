@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { inviaMessaggio } from "@/lib/telegram-bot";
 import { confermaToken } from "@/lib/collegamento";
+import { segnala } from "@/lib/sorveglianza";
+import { ipClient } from "@/lib/rete";
 import { escapeHtml } from "@/lib/notifiche";
 import {
   LUNGHEZZA_MASSIMA,
@@ -37,14 +39,45 @@ type Aggiornamento = {
 };
 
 export async function POST(richiesta: Request) {
+  /**
+   * Il segreto è obbligatorio, senza eccezioni.
+   *
+   * Prima il controllo viveva dentro `if (segretoAtteso)`: con la variabile
+   * non impostata spariva del tutto e la rotta accettava qualunque corpo
+   * JSON da chiunque. Questa è la rotta più delicata del progetto — da qui
+   * si conferma un token di collegamento e si scrive nelle conversazioni —
+   * quindi un aggiornamento inventato permetteva di associare il proprio
+   * Telegram a un token altrui e di entrare nel suo account.
+   *
+   * Una variabile dimenticata non deve tradursi in una porta aperta: se
+   * manca, la rotta si chiude invece di aprirsi.
+   */
   const segretoAtteso = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (segretoAtteso) {
-    const segretoRicevuto = richiesta.headers.get(
-      "x-telegram-bot-api-secret-token",
+  if (!segretoAtteso) {
+    console.error(
+      "[webhook] TELEGRAM_WEBHOOK_SECRET non impostato: rotta disattivata.",
     );
-    if (!segretoRicevuto || !confrontoSicuro(segretoRicevuto, segretoAtteso)) {
-      return NextResponse.json({ errore: "Non autorizzato." }, { status: 401 });
-    }
+    return NextResponse.json({ errore: "Non disponibile." }, { status: 503 });
+  }
+
+  const segretoRicevuto = richiesta.headers.get(
+    "x-telegram-bot-api-secret-token",
+  );
+  if (!segretoRicevuto || !confrontoSicuro(segretoRicevuto, segretoAtteso)) {
+    // Telegram manda sempre il segreto giusto: qui arriva solo chi ha
+    // trovato l'indirizzo del webhook e sta provando a inventarsi un
+    // aggiornamento. Vale la pena vederlo nel pannello.
+    segnala({
+      tipo: "webhook",
+      ip: ipClient(richiesta.headers),
+      metodo: "POST",
+      percorso: "/api/telegram/webhook",
+      agente: richiesta.headers.get("user-agent"),
+      dettaglio: segretoRicevuto
+        ? "segreto del webhook errato"
+        : "segreto del webhook assente",
+    });
+    return NextResponse.json({ errore: "Non autorizzato." }, { status: 401 });
   }
 
   const aggiornamento = (await richiesta

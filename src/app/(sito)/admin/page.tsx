@@ -1,6 +1,9 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { richiediStaff } from "@/lib/sessione";
+import { contaEventiRecenti, segnala } from "@/lib/sorveglianza";
+import { ipClient } from "@/lib/rete";
 import {
   puoGestireOperazioni,
   puoModificareContenuti,
@@ -9,8 +12,6 @@ import {
 import { formattaPrezzo } from "@/lib/contenuti";
 import { statoEffettivo, valoreMensileCentesimi } from "@/lib/abbonamenti";
 import { calcolaCommissione } from "@/lib/scambio";
-import { Navigazione } from "@/components/navigazione";
-import { PiedePagina } from "@/components/piede-pagina";
 import { SchedeAdmin } from "@/components/schede-admin";
 import { BadgeRuolo } from "@/components/badge-ruolo";
 import { Etichetta } from "@/components/ui";
@@ -19,6 +20,7 @@ import { SezioneExchange } from "./sezioni/exchange";
 import { SezioneSottoscrizioni } from "./sezioni/sottoscrizioni";
 import { SezioneAbbonamenti } from "./sezioni/abbonamenti";
 import { SezioneRuoli } from "./sezioni/ruoli";
+import { SezioneSorveglianza } from "./sezioni/sorveglianza";
 import {
   SezioneAutomazioni,
   SezioneContatti,
@@ -38,28 +40,38 @@ export default async function PannelloAdmin() {
   const admin = await richiediStaff();
 
   if (!admin) {
+    // Chi arriva qui senza diritti è, quasi sempre, qualcuno che ha
+    // tirato a indovinare l'indirizzo del pannello. Il tentativo va nel
+    // giornale di sorveglianza: preso da solo non significa nulla, ripetuto
+    // è il preludio a tutto il resto.
+    const intestazioni = await headers();
+    segnala({
+      tipo: "accesso",
+      ip: ipClient(intestazioni),
+      metodo: "GET",
+      percorso: "/admin",
+      agente: intestazioni.get("user-agent"),
+      dettaglio: "pannello amministrativo senza permessi",
+    });
+
     return (
-      <div className="flex min-h-full flex-col">
-        <Navigazione />
-        <main className="colonne relative mx-auto flex w-full max-w-[1400px] flex-1 items-center justify-center px-4 py-24 sm:px-8">
-          <div className="crocini relative max-w-md border border-[var(--bordo)] p-8 sm:p-10">
-            <Etichetta className="text-[var(--allarme)]">
-              Errore · 403 accesso negato
-            </Etichetta>
-            <h1 className="display mt-5 text-[32px]">Area riservata</h1>
-            <p className="mono mt-4 text-[12.5px] leading-[1.7] text-[var(--testo-tenue)]">
-              Questa sezione è accessibile solo allo staff.
-            </p>
-            <Link
-              href="/"
-              className="mono spinta mt-8 inline-block border border-[var(--bordo-pieno)] bg-[var(--bordo-pieno)] px-5 py-3 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--testo-inverso)]"
-            >
-              Torna alla home
-            </Link>
-          </div>
-        </main>
-        <PiedePagina />
-      </div>
+      <main className="colonne relative mx-auto flex w-full max-w-[1400px] flex-1 items-center justify-center px-4 py-24 sm:px-8">
+        <div className="crocini relative max-w-md border border-[var(--bordo)] p-8 sm:p-10">
+          <Etichetta className="text-[var(--allarme)]">
+            Errore · 403 accesso negato
+          </Etichetta>
+          <h1 className="display mt-5 text-[32px]">Area riservata</h1>
+          <p className="mono mt-4 text-[12.5px] leading-[1.7] text-[var(--testo-tenue)]">
+            Questa sezione è accessibile solo allo staff.
+          </p>
+          <Link
+            href="/"
+            className="mono spinta mt-8 inline-block border border-[var(--bordo-pieno)] bg-[var(--bordo-pieno)] px-5 py-3 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--testo-inverso)]"
+          >
+            Torna alla home
+          </Link>
+        </div>
+      </main>
     );
   }
 
@@ -70,10 +82,18 @@ export default async function PannelloAdmin() {
   const gestisceOperazioni = puoGestireOperazioni(admin.ruolo);
   const vedeStatistiche = puoVedereStatistiche(admin.ruolo);
 
+  // La sorveglianza è riservata a DEVELOPER: contiene indirizzi IP e
+  // user-agent dei visitatori, che non servono a chi risponde ai clienti.
+  const eventiSicurezza = gestisceContenuti ? contaEventiRecenti() : 0;
+
   const [
     abbonamenti,
     richieste,
     richiesteExchange,
+    exchangeNuove,
+    richiesteNuove,
+    messaggiDaLeggere,
+    importiExchangeConclusi,
     sottoscrizioni,
     contenuti,
     servizi,
@@ -92,12 +112,58 @@ export default async function PannelloAdmin() {
       include: { utente: true, messaggi: { orderBy: { creatoIl: "asc" } } },
       take: 50,
     }),
-    // Senza limite e a parte: le statistiche di incasso devono contare ogni
-    // scambio da sempre, non solo gli ultimi 50 movimenti del pannello.
+    /**
+     * L'elenco degli scambi mostrato nel pannello, limitato come gli altri.
+     *
+     * Prima questa query non aveva `take`, e portava con sé utente e
+     * conversazione completa di ogni scambio mai registrato: serviva solo
+     * per due numeri in cima alla pagina, ma il costo cresceva con lo
+     * storico e non con quello che si vede. Con qualche centinaio di
+     * pratiche significa trascinare a ogni apertura del pannello migliaia
+     * di righe di messaggi che nessuno guarda.
+     *
+     * I due numeri ora arrivano dalle due query qui sotto, che leggono
+     * quello che serve e nient'altro.
+     */
     prisma.richiesta.findMany({
       where: { ambito: "EXCHANGE" },
       orderBy: { creatoIl: "desc" },
       include: { utente: true, messaggi: { orderBy: { creatoIl: "asc" } } },
+      take: 50,
+    }),
+    // Conteggio sul database: non serve portare in memoria le righe per
+    // contarle.
+    prisma.richiesta.count({ where: { ambito: "EXCHANGE", stato: "NUOVA" } }),
+    /**
+     * Le due code che il pannello mette in cima, contate sul database.
+     *
+     * Prima si ricavavano filtrando l'elenco già caricato, che si ferma
+     * alle 50 pratiche più recenti: superata quella soglia i numeri
+     * iniziavano a mentire per difetto, e proprio nel verso peggiore —
+     * una richiesta nuova o un messaggio senza risposta più in basso
+     * nell'elenco semplicemente non venivano contati, quindi nessuno
+     * sapeva di doverli guardare. Con qualche centinaio di pratiche il
+     * cruscotto avrebbe detto "tutto in ordine" con del lavoro arretrato.
+     *
+     * Entrambe le query usano indici già presenti nello schema
+     * (`@@index([stato, creatoIl])` e `@@index([letto, daAdmin])`).
+     */
+    prisma.richiesta.count({ where: { stato: "NUOVA" } }),
+    prisma.messaggio.count({ where: { daAdmin: false, letto: false } }),
+    /**
+     * Soli importi degli scambi conclusi, per la somma delle commissioni.
+     *
+     * Non si usa `aggregate({ _sum })` perché la commissione si arrotonda
+     * per singola operazione: sommare prima e applicare la percentuale
+     * dopo darebbe un totale diverso di qualche centesimo per riga, e su
+     * una cifra di incasso una differenza inventata dall'arrotondamento
+     * non è accettabile. Questa resta senza limite di proposito — è il
+     * totale di sempre — ma legge una sola colonna di interi, senza join
+     * né messaggi: il peso è una frazione di quello di prima.
+     */
+    prisma.richiesta.findMany({
+      where: { ambito: "EXCHANGE", stato: "COMPLETATA" },
+      select: { importoCentesimi: true },
     }),
     prisma.abbonamentoUtente.findMany({
       orderBy: { creatoIl: "desc" },
@@ -118,14 +184,6 @@ export default async function PannelloAdmin() {
     }),
   ]);
 
-  const richiesteNuove = richieste.filter((r) => r.stato === "NUOVA").length;
-  // Messaggi del cliente ancora da leggere: è la coda di risposte che il
-  // pannello deve mettere in evidenza quanto le attivazioni.
-  const messaggiDaLeggere = richieste.reduce(
-    (totale, r) =>
-      totale + r.messaggi.filter((m) => !m.daAdmin && !m.letto).length,
-    0,
-  );
   const attivazioniInAttesa = sottoscrizioni.filter(
     (s) => s.stato === "IN_ATTESA",
   ).length;
@@ -146,29 +204,21 @@ export default async function PannelloAdmin() {
     {},
   );
 
-  const exchangeNuove = richiesteExchange.filter(
-    (r) => r.stato === "NUOVA",
-  ).length;
-  const commissioneExchangeCentesimi = richiesteExchange
-    .filter((r) => r.stato === "COMPLETATA")
-    .reduce(
-      (totale, r) =>
-        totale + calcolaCommissione(r.importoCentesimi ?? 0).commissioneCentesimi,
-      0,
-    );
+  const commissioneExchangeCentesimi = importiExchangeConclusi.reduce(
+    (totale, r) =>
+      totale + calcolaCommissione(r.importoCentesimi ?? 0).commissioneCentesimi,
+    0,
+  );
 
   // Quel che richiede un intervento, in evidenza sopra tutto il resto.
   const daFare =
     richiesteNuove + attivazioniInAttesa + messaggiDaLeggere + exchangeNuove;
 
   return (
-    <div className="flex min-h-full flex-col">
-      <Navigazione />
-
-      {/* Intestazione compatta su mobile: titolo e riepilogo occupavano
-          quasi una schermata prima di arrivare alle schede, che sono ciò
-          per cui il pannello si apre. */}
-      <main className="colonne relative mx-auto w-full max-w-[1400px] flex-1 px-4 py-5 sm:px-8 sm:py-16">
+    // Intestazione compatta su mobile: titolo e riepilogo occupavano
+    // quasi una schermata prima di arrivare alle schede, che sono ciò
+    // per cui il pannello si apre.
+    <main className="colonne relative mx-auto w-full max-w-[1400px] flex-1 px-4 py-5 sm:px-8 sm:py-16">
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--bordo)] pb-4 sm:pb-6">
           <div>
             <Etichetta className="text-[var(--accento)]">
@@ -289,6 +339,14 @@ export default async function PannelloAdmin() {
             // salvarle.
             ...(gestisceContenuti
               ? [
+                  {
+                    id: "sorveglianza",
+                    etichetta: "Sorveglianza",
+                    // Il contatore porta in cima quello che il pannello non
+                    // può dire da fermo: se sta succedendo qualcosa adesso,
+                    // si vede dalla barra senza aprire la scheda.
+                    contatore: eventiSicurezza,
+                  },
                   { id: "ruoli", etichetta: "Ruoli" },
                   { id: "abbonamenti", etichetta: "Piani" },
                   { id: "servizi", etichetta: "Servizi" },
@@ -324,6 +382,7 @@ export default async function PannelloAdmin() {
             ),
             ...(gestisceContenuti
               ? {
+                  sorveglianza: <SezioneSorveglianza />,
                   ruoli: <SezioneRuoli staff={staff} />,
                   abbonamenti: (
                     <SezioneAbbonamenti
@@ -343,9 +402,6 @@ export default async function PannelloAdmin() {
               : {}),
           }}
         </SchedeAdmin>
-      </main>
-
-      <PiedePagina />
-    </div>
+    </main>
   );
 }

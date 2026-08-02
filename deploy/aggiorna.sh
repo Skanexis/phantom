@@ -8,6 +8,23 @@ APP="phantomlab"
 
 cd "$CARTELLA"
 
+# Un comando dato con sudo (tipicamente `sudo git pull`) lascia i file a root.
+# Il npm ci successivo non riesce a rimuovere node_modules e si ferma con
+# EACCES a dipendenze mezze cancellate: da lì anche prisma sparisce, con
+# errori che non indicano la vera causa.
+for PERCORSO in "$CARTELLA" node_modules; do
+  [ -e "$PERCORSO" ] || continue
+  PROPRIETARIO="$(stat -c '%U' "$PERCORSO")"
+  if [ "$PROPRIETARIO" != "$(whoami)" ]; then
+    echo "ERRORE: '$PERCORSO' appartiene a '$PROPRIETARIO', non a '$(whoami)'." >&2
+    echo "Succede eseguendo git o npm con sudo. Correggi con:" >&2
+    echo >&2
+    echo "  sudo chown -R $(whoami):$(whoami) $CARTELLA" >&2
+    echo >&2
+    exit 1
+  fi
+done
+
 echo "==> Scarico le modifiche"
 git pull --ff-only
 

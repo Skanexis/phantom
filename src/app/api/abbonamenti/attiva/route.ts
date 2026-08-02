@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { leggiSessione } from "@/lib/sessione";
+import { registraTentativo } from "@/lib/limite";
 import { escapeHtml, notificaAdmin, notificaUtente } from "@/lib/notifiche";
 import { formattaPrezzo } from "@/lib/contenuti";
 import { STATI_APERTI } from "@/lib/abbonamenti";
@@ -12,12 +13,28 @@ const schema = z.object({
   slug: z.string().trim().min(1).max(80),
 });
 
+/** Attivare un piano avvisa l'amministrazione: poche volte, non a raffica. */
+const MAX_ATTIVAZIONI = 10;
+const FINESTRA_MS = 10 * 60 * 1000;
+
 export async function POST(richiesta: Request) {
   const sessione = await leggiSessione();
   if (!sessione) {
     return NextResponse.json(
       { errore: "Accedi tramite Telegram per attivare un abbonamento." },
       { status: 401 },
+    );
+  }
+
+  const esito = registraTentativo(
+    `abbonamenti:${sessione.utenteId}`,
+    MAX_ATTIVAZIONI,
+    FINESTRA_MS,
+  );
+  if (esito.superato) {
+    return NextResponse.json(
+      { errore: "Troppi tentativi. Riprova fra qualche minuto." },
+      { status: 429, headers: { "Retry-After": String(esito.attesaSecondi) } },
     );
   }
 

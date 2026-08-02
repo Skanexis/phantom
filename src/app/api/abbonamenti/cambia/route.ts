@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { leggiSessione } from "@/lib/sessione";
+import { registraTentativo } from "@/lib/limite";
 import { escapeHtml, notificaAdmin, notificaUtente } from "@/lib/notifiche";
 import { formattaPrezzo } from "@/lib/contenuti";
 import { statoEffettivo } from "@/lib/abbonamenti";
@@ -21,12 +22,28 @@ const schema = z.object({
  * Fino ad allora il piano vecchio resta attivo, così il cliente non perde
  * il servizio mentre aspetta.
  */
+/** Stesso ragionamento dell'attivazione: ogni cambio avvisa l'admin. */
+const MAX_CAMBI = 10;
+const FINESTRA_MS = 10 * 60 * 1000;
+
 export async function POST(richiesta: Request) {
   const sessione = await leggiSessione();
   if (!sessione) {
     return NextResponse.json(
       { errore: "Accedi tramite Telegram per cambiare piano." },
       { status: 401 },
+    );
+  }
+
+  const esito = registraTentativo(
+    `abbonamenti:${sessione.utenteId}`,
+    MAX_CAMBI,
+    FINESTRA_MS,
+  );
+  if (esito.superato) {
+    return NextResponse.json(
+      { errore: "Troppi tentativi. Riprova fra qualche minuto." },
+      { status: 429, headers: { "Retry-After": String(esito.attesaSecondi) } },
     );
   }
 

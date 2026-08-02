@@ -19,8 +19,6 @@ import {
   inScadenza,
   statoEffettivo,
 } from "@/lib/abbonamenti";
-import { Navigazione } from "@/components/navigazione";
-import { PiedePagina } from "@/components/piede-pagina";
 import { BadgeStato } from "@/components/badge-stato";
 import { PannelloNotifiche } from "@/components/pannello-notifiche";
 import { Rivela, Scaglionato, Voce } from "@/components/animazioni";
@@ -61,24 +59,20 @@ export default async function AreaPersonale({
 
   if (!utente) {
     return (
-      <div className="flex min-h-full flex-col">
-        <Navigazione />
-        <main className="colonne relative mx-auto flex w-full max-w-[1400px] flex-1 items-center justify-center px-4 py-16 sm:px-8 sm:py-24">
-          <div className="w-full max-w-lg">
-            <AccessoTelegram
-              titolo="Accedi al tuo account"
-              descrizione="Collega il tuo profilo Telegram per vedere abbonamenti, richieste e notifiche. Funziona anche se hai aperto il sito da un link normale."
-            />
-            <Link
-              href="/"
-              className="mono mt-6 inline-flex min-h-11 items-center text-[11px] uppercase tracking-[0.12em] text-[var(--testo-tenue)] transition-colors hover:text-[var(--accento)]"
-            >
-              ← Torna alla home
-            </Link>
-          </div>
-        </main>
-        <PiedePagina />
-      </div>
+      <main className="colonne relative mx-auto flex w-full max-w-[1400px] flex-1 items-center justify-center px-4 py-16 sm:px-8 sm:py-24">
+        <div className="w-full max-w-lg">
+          <AccessoTelegram
+            titolo="Accedi al tuo account"
+            descrizione="Collega il tuo profilo Telegram per vedere abbonamenti, richieste e notifiche. Funziona anche se hai aperto il sito da un link normale."
+          />
+          <Link
+            href="/"
+            className="mono mt-6 inline-flex min-h-11 items-center text-[11px] uppercase tracking-[0.12em] text-[var(--testo-tenue)] transition-colors hover:text-[var(--accento)]"
+          >
+            ← Torna alla home
+          </Link>
+        </div>
+      </main>
     );
   }
 
@@ -145,9 +139,7 @@ export default async function AreaPersonale({
   );
 
   return (
-    <div className="flex min-h-full flex-col">
-      <Navigazione />
-
+    <>
       {/* Il gesto di trascinamento vale per l'intera pagina: è quello che
           si tenta d'istinto per aggiornare un elenco sul telefono. */}
       <TrascinaAggiorna />
@@ -583,9 +575,7 @@ export default async function AreaPersonale({
           }}
         </Schede>
       </main>
-
-      <PiedePagina />
-    </div>
+    </>
   );
 }
 

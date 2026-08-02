@@ -51,6 +51,31 @@ const nextConfig: NextConfig = {
           // Isola la finestra da eventuali opener esterni.
           { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
           { key: "X-DNS-Prefetch-Control", value: "on" },
+          // Ripetuto rispetto a Nginx di proposito: se un giorno l'app
+          // finisce dietro un proxy diverso, o il file di Nginx viene
+          // sostituito, HSTS resta. Costa un'intestazione.
+          //
+          // Non c'è X-Frame-Options: sarebbe in conflitto con la direttiva
+          // frame-ancestors qui sopra, che è il meccanismo attuale ed è
+          // l'unico dei due capace di autorizzare web.telegram.org — la
+          // Mini App deve poter essere incorniciata da lì.
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=31536000; includeSubDomains",
+          },
+        ],
+      },
+      {
+        /**
+         * Le risposte dell'API contengono dati di una persona sola:
+         * notifiche, conversazioni, sessione. Nessuna cache intermedia deve
+         * conservarle, perché il rischio non è che restino vecchie — è che
+         * un proxy le riproponga a un altro visitatore.
+         */
+        source: "/api/:path*",
+        headers: [
+          { key: "Cache-Control", value: "no-store" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },
       {

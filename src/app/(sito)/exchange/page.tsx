@@ -1,7 +1,5 @@
 import Link from "next/link";
 import { FormExchange } from "@/components/form-exchange";
-import { Navigazione } from "@/components/navigazione";
-import { PiedePagina } from "@/components/piede-pagina";
 import { Rivela } from "@/components/animazioni";
 import { AccessoTelegram } from "@/components/accesso-telegram";
 import { Icona } from "@/components/icone";
@@ -20,33 +18,26 @@ export default async function PaginaExchange() {
 
   if (!utente) {
     return (
-      <div className="flex min-h-full flex-col">
-        <Navigazione />
-        <main className="colonne relative mx-auto flex w-full max-w-[1400px] flex-1 items-center justify-center px-4 py-16 sm:px-8 sm:py-24">
-          <div className="w-full max-w-lg">
-            <AccessoTelegram
-              titolo="Accedi al tuo account"
-              descrizione="Collega il tuo profilo Telegram per richiedere un cambio: ti scriviamo dallo stesso account per i dettagli."
-            />
-            <Link
-              href="/"
-              className="mono mt-6 inline-flex min-h-11 items-center text-[11px] uppercase tracking-[0.12em] text-[var(--testo-tenue)] transition-colors hover:text-[var(--accento)]"
-            >
-              ← Torna alla home
-            </Link>
-          </div>
-        </main>
-        <PiedePagina />
-      </div>
+      <main className="colonne relative mx-auto flex w-full max-w-[1400px] flex-1 items-center justify-center px-4 py-16 sm:px-8 sm:py-24">
+        <div className="w-full max-w-lg">
+          <AccessoTelegram
+            titolo="Accedi al tuo account"
+            descrizione="Collega il tuo profilo Telegram per richiedere un cambio: ti scriviamo dallo stesso account per i dettagli."
+          />
+          <Link
+            href="/"
+            className="mono mt-6 inline-flex min-h-11 items-center text-[11px] uppercase tracking-[0.12em] text-[var(--testo-tenue)] transition-colors hover:text-[var(--accento)]"
+          >
+            ← Torna alla home
+          </Link>
+        </div>
+      </main>
     );
   }
 
   return (
-    <div className="flex min-h-full flex-col">
-      <Navigazione />
-
-      <main className="colonne relative mx-auto w-full max-w-[1400px] flex-1 px-4 py-12 sm:px-8 sm:py-20">
-        <div className="mx-auto w-full max-w-2xl">
+    <main className="colonne relative mx-auto w-full max-w-[1400px] flex-1 px-4 py-12 sm:px-8 sm:py-20">
+      <div className="mx-auto w-full max-w-2xl">
           <Rivela>
             <Link
               href="/"
@@ -91,14 +82,11 @@ export default async function PaginaExchange() {
           </Rivela>
 
           <div className="mt-12">
-            <Rivela ritardo={0.08}>
-              <FormExchange />
-            </Rivela>
-          </div>
+          <Rivela ritardo={0.08}>
+            <FormExchange />
+          </Rivela>
         </div>
-      </main>
-
-      <PiedePagina />
-    </div>
+      </div>
+    </main>
   );
 }

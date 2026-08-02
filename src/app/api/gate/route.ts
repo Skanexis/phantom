@@ -7,29 +7,19 @@ import {
   creaTokenGate,
   gateAttivo,
 } from "@/lib/gate";
+import { azzeraLimite, registraTentativo } from "@/lib/limite";
+import { ipClient } from "@/lib/rete";
+import { segnala } from "@/lib/sorveglianza";
 
 const schema = z.object({ password: z.string().min(1).max(200) });
 
 /**
- * Limite tentativi in memoria, per IP. Sufficiente a rallentare un attacco
- * a forza bruta su una singola istanza; con più istanze serve uno store condiviso.
+ * Limite tentativi per IP: rallenta l'attacco a forza bruta sulla password
+ * del cantiere. Il conteggio vive nel processo — con una sola istanza PM2
+ * è la verità completa; con più worker andrebbe spostato su store condiviso.
  */
-const tentativi = new Map<string, { conteggio: number; scadenza: number }>();
 const MAX_TENTATIVI = 8;
 const FINESTRA_MS = 10 * 60 * 1000;
-
-function troppiTentativi(ip: string) {
-  const adesso = Date.now();
-  const voce = tentativi.get(ip);
-
-  if (!voce || voce.scadenza < adesso) {
-    tentativi.set(ip, { conteggio: 1, scadenza: adesso + FINESTRA_MS });
-    return false;
-  }
-
-  voce.conteggio += 1;
-  return voce.conteggio > MAX_TENTATIVI;
-}
 
 function confrontoSicuro(a: string, b: string) {
   const bufferA = Buffer.from(a);
@@ -51,15 +41,26 @@ export async function POST(richiesta: Request) {
     );
   }
 
-  const ip =
-    richiesta.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    richiesta.headers.get("x-real-ip") ||
-    "sconosciuto";
+  // L'IP arriva da ipClient, che legge l'ultimo hop invece del primo: la
+  // prima voce di X-Forwarded-For la scrive il client, e bastava cambiarla
+  // a ogni tentativo per avere un budget nuovo e provare le password senza
+  // alcun limite.
+  const ip = ipClient(richiesta.headers);
+  const chiave = `gate:${ip}`;
 
-  if (troppiTentativi(ip)) {
+  const esito = registraTentativo(chiave, MAX_TENTATIVI, FINESTRA_MS);
+  if (esito.superato) {
+    segnala({
+      tipo: "frequenza",
+      ip,
+      metodo: "POST",
+      percorso: "/api/gate",
+      agente: richiesta.headers.get("user-agent"),
+      dettaglio: `oltre ${MAX_TENTATIVI} tentativi di password`,
+    });
     return NextResponse.json(
       { errore: "Troppi tentativi. Riprova tra qualche minuto." },
-      { status: 429 },
+      { status: 429, headers: { "Retry-After": String(esito.attesaSecondi) } },
     );
   }
 
@@ -72,13 +73,24 @@ export async function POST(richiesta: Request) {
   }
 
   if (!confrontoSicuro(corpo.data.password, attesa)) {
+    // Una password sbagliata capita a chi la ricorda male; una serie di
+    // password sbagliate è un'altra cosa, ed è il pannello a doverlo
+    // mostrare. Dodici tentativi respinti mandano l'indirizzo in quarantena.
+    segnala({
+      tipo: "gate",
+      ip,
+      metodo: "POST",
+      percorso: "/api/gate",
+      agente: richiesta.headers.get("user-agent"),
+      dettaglio: "password del cantiere errata",
+    });
     return NextResponse.json(
       { errore: "Password non valida." },
       { status: 401 },
     );
   }
 
-  tentativi.delete(ip);
+  azzeraLimite(chiave);
 
   const risposta = NextResponse.json({ ok: true });
   risposta.cookies.set(NOME_COOKIE_GATE, await creaTokenGate(), {

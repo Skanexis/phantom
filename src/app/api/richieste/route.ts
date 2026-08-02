@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { leggiSessione } from "@/lib/sessione";
+import { registraTentativo } from "@/lib/limite";
+import { segnala } from "@/lib/sorveglianza";
+import { ipClient } from "@/lib/rete";
 import { etichetteAmbito } from "@/lib/telegram-bot";
 import { escapeHtml, notificaAdmin, notificaUtente } from "@/lib/notifiche";
 import { PREFISSO_RICHIESTA, codiceUnico } from "@/lib/codici";
@@ -36,6 +39,16 @@ const schema = z.object({
   importoCentesimi: z.number().int().min(1000).max(100_000_000).optional(),
 });
 
+/**
+ * Ogni richiesta accettata scrive a database e fa partire due messaggi
+ * Telegram, uno dei quali all'amministrazione. Senza tetto, un account
+ * collegato può riempire il pannello e sommergere la chat admin di avvisi
+ * finché diventa inutilizzabile: il limite è per utente, non per IP,
+ * perché è l'account a essere autenticato e a portare il costo.
+ */
+const MAX_RICHIESTE = 5;
+const FINESTRA_MS = 10 * 60 * 1000;
+
 export async function POST(richiestaHttp: Request) {
   // Login obbligatorio: la richiesta deve essere sempre riconducibile
   // a un account, così l'utente può seguirne lo stato.
@@ -44,6 +57,29 @@ export async function POST(richiestaHttp: Request) {
     return NextResponse.json(
       { errore: "Collega il tuo account Telegram per inviare la richiesta." },
       { status: 401 },
+    );
+  }
+
+  const esito = registraTentativo(
+    `richieste:${sessione.utenteId}`,
+    MAX_RICHIESTE,
+    FINESTRA_MS,
+  );
+  if (esito.superato) {
+    segnala({
+      tipo: "frequenza_utente",
+      ip: ipClient(richiestaHttp.headers),
+      metodo: "POST",
+      percorso: "/api/richieste",
+      agente: richiestaHttp.headers.get("user-agent"),
+      dettaglio: `utente ${sessione.utenteId}: oltre ${MAX_RICHIESTE} richieste`,
+    });
+    return NextResponse.json(
+      {
+        errore:
+          "Hai inviato troppe richieste di seguito. Riprova fra qualche minuto.",
+      },
+      { status: 429, headers: { "Retry-After": String(esito.attesaSecondi) } },
     );
   }
 

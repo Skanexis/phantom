@@ -7,9 +7,40 @@ import {
   urlBotNativo,
 } from "@/lib/collegamento";
 import { creaSessione } from "@/lib/sessione";
+import { registraTentativo } from "@/lib/limite";
+import { ipClient } from "@/lib/rete";
+import { segnala } from "@/lib/sorveglianza";
+
+/**
+ * Il collegamento parte da chi non è ancora autenticato, quindi il limite
+ * può appoggiarsi solo all'IP. Ogni chiamata scrive una riga in
+ * TokenCollegamento: senza tetto, un ciclo la fa crescere all'infinito.
+ */
+const MAX_TOKEN = 15;
+const FINESTRA_MS = 10 * 60 * 1000;
 
 /** Avvia il collegamento: restituisce token e link al bot. */
-export async function POST() {
+export async function POST(richiesta: Request) {
+  const esito = registraTentativo(
+    `collega:${ipClient(richiesta.headers)}`,
+    MAX_TOKEN,
+    FINESTRA_MS,
+  );
+  if (esito.superato) {
+    segnala({
+      tipo: "frequenza",
+      ip: ipClient(richiesta.headers),
+      metodo: "POST",
+      percorso: "/api/auth/collega",
+      agente: richiesta.headers.get("user-agent"),
+      dettaglio: `oltre ${MAX_TOKEN} token di collegamento richiesti`,
+    });
+    return NextResponse.json(
+      { errore: "Troppi tentativi di accesso. Riprova fra qualche minuto." },
+      { status: 429, headers: { "Retry-After": String(esito.attesaSecondi) } },
+    );
+  }
+
   const bot = process.env.TELEGRAM_BOT_USERNAME;
   if (!bot) {
     return NextResponse.json(

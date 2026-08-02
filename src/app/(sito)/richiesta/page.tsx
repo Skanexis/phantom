@@ -1,7 +1,5 @@
 import Link from "next/link";
 import { FormRichiesta } from "@/components/form-richiesta";
-import { Navigazione } from "@/components/navigazione";
-import { PiedePagina } from "@/components/piede-pagina";
 import { Rivela } from "@/components/animazioni";
 import { AccessoTelegram } from "@/components/accesso-telegram";
 import { Etichetta } from "@/components/ui";
@@ -38,11 +36,8 @@ export default async function PaginaRichiesta({
     : null;
 
   return (
-    <div className="flex min-h-full flex-col">
-      <Navigazione />
-
-      <main className="colonne relative mx-auto w-full max-w-[1400px] flex-1 px-4 py-12 sm:px-8 sm:py-20">
-        <div className="mx-auto w-full max-w-2xl">
+    <main className="colonne relative mx-auto w-full max-w-[1400px] flex-1 px-4 py-12 sm:px-8 sm:py-20">
+      <div className="mx-auto w-full max-w-2xl">
           <Rivela>
             <Link
               href="/"
@@ -98,12 +93,9 @@ export default async function PaginaRichiesta({
                   descrizione="Serve un account Telegram per inviare la richiesta e seguirne lo stato. Apri il bot, premi Avvia e torni qui già collegato."
                 />
               )}
-            </Rivela>
-          </div>
+          </Rivela>
         </div>
-      </main>
-
-      <PiedePagina />
-    </div>
+      </div>
+    </main>
   );
 }

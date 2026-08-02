@@ -662,12 +662,22 @@ Se preferisci procedere a mano:
 
 ```bash
 cd /var/www/phantomlab
-git pull
+git pull --ff-only            # MAI con sudo: vedi la nota qui sotto
 npm ci
 npx prisma migrate deploy
 bash deploy/build.sh          # NON solo `npm run build`
 pm2 reload phantomlab --update-env
 ```
+
+> Nessun comando di questa sequenza va eseguito con `sudo`. Un `sudo git pull` scrive i file aggiornati come `root`: il `npm ci` successivo non riesce più a rimuovere `node_modules` e si ferma con `EACCES: permission denied, rmdir`, lasciando le dipendenze a metà. Da lì anche `npx prisma` fallisce con `prisma: not found`, sia nella migrazione sia dentro `build.sh`, e l'app resta alla build precedente.
+>
+> Se è già successo, ridai la proprietà della cartella all'utente dell'applicazione e ripeti l'aggiornamento:
+>
+> ```bash
+> cd /var/www/phantomlab
+> sudo chown -R "$(whoami):$(whoami)" .
+> bash deploy/aggiorna.sh
+> ```
 
 ### Aggiornamento con i codici brevi e la messaggistica
 
