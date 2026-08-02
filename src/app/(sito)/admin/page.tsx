@@ -5,8 +5,11 @@ import { richiediStaff } from "@/lib/sessione";
 import { contaEventiRecenti, segnala } from "@/lib/sorveglianza";
 import { ipClient } from "@/lib/rete";
 import {
+  puoBandireRete,
+  puoBloccareAccount,
   puoGestireOperazioni,
   puoModificareContenuti,
+  puoSegnalareUtenti,
   puoVedereStatistiche,
 } from "@/lib/permessi";
 import { formattaPrezzo } from "@/lib/contenuti";
@@ -21,6 +24,7 @@ import { SezioneSottoscrizioni } from "./sezioni/sottoscrizioni";
 import { SezioneAbbonamenti } from "./sezioni/abbonamenti";
 import { SezioneRuoli } from "./sezioni/ruoli";
 import { SezioneSorveglianza } from "./sezioni/sorveglianza";
+import { SezioneUtenti } from "./sezioni/utenti";
 import {
   SezioneAutomazioni,
   SezioneContatti,
@@ -81,6 +85,9 @@ export default async function PannelloAdmin() {
   const gestisceContenuti = puoModificareContenuti(admin.ruolo);
   const gestisceOperazioni = puoGestireOperazioni(admin.ruolo);
   const vedeStatistiche = puoVedereStatistiche(admin.ruolo);
+  const segnalaUtenti = puoSegnalareUtenti(admin.ruolo);
+  const bloccaAccount = puoBloccareAccount(admin.ruolo);
+  const bandisceRete = puoBandireRete(admin.ruolo);
 
   // La sorveglianza è riservata a DEVELOPER: contiene indirizzi IP e
   // user-agent dei visitatori, che non servono a chi risponde ai clienti.
@@ -102,6 +109,9 @@ export default async function PannelloAdmin() {
     faq,
     contatti,
     staff,
+    utentiAnagrafica,
+    segnalazioniAperte,
+    bandiAttivi,
   ] = await Promise.all([
     prisma.abbonamento.findMany({
       orderBy: { ordine: "asc" },
@@ -181,6 +191,79 @@ export default async function PannelloAdmin() {
     prisma.utente.findMany({
       where: { ruolo: { in: ["SUPPORTO", "ADMIN", "DEVELOPER"] } },
       orderBy: [{ ruolo: "desc" }, { creatoIl: "asc" }],
+    }),
+    /**
+     * Anagrafica per la scheda Utenti.
+     *
+     * Con `take` e non aperta: la tabella cresce con ogni persona che ha
+     * scritto al bot una volta sola, e caricarla intera per una scheda che
+     * si sfoglia significherebbe far pagare l'apertura del pannello a chi
+     * viene dopo. Duecento è la finestra in cui la ricerca lato client resta
+     * istantanea; oltre, la strada giusta è una ricerca sul database, non un
+     * numero più grande qui.
+     *
+     * I bloccati e i segnalati vengono comunque in cima: sono le righe per
+     * cui questa scheda esiste, e non devono poter cadere fuori finestra.
+     */
+    prisma.utente.findMany({
+      orderBy: [{ bloccato: "desc" }, { creatoIl: "desc" }],
+      take: 200,
+      select: {
+        id: true,
+        telegramId: true,
+        username: true,
+        nome: true,
+        ruolo: true,
+        creatoIl: true,
+        bloccato: true,
+        bloccatoIl: true,
+        motivoBlocco: true,
+        abbonamentiUtente: {
+          orderBy: { creatoIl: "desc" },
+          select: {
+            id: true,
+            codice: true,
+            stato: true,
+            scadeIl: true,
+            abbonamento: { select: { nome: true } },
+          },
+        },
+        richieste: {
+          orderBy: { creatoIl: "desc" },
+          take: 20,
+          select: {
+            id: true,
+            numero: true,
+            codice: true,
+            ambito: true,
+            stato: true,
+            creatoIl: true,
+          },
+        },
+        _count: {
+          select: {
+            segnalazioniRicevute: { where: { stato: { not: "CHIUSA" } } },
+          },
+        },
+      },
+    }),
+    prisma.segnalazione.findMany({
+      where: { stato: { not: "CHIUSA" } },
+      orderBy: { creatoIl: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        motivo: true,
+        stato: true,
+        creatoIl: true,
+        utente: { select: { id: true, username: true, telegramId: true } },
+        autore: { select: { username: true, telegramId: true } },
+      },
+    }),
+    prisma.bando.findMany({
+      where: { OR: [{ scadeIl: null }, { scadeIl: { gt: new Date() } }] },
+      orderBy: { creatoIl: "desc" },
+      take: 100,
     }),
   ]);
 
@@ -333,6 +416,15 @@ export default async function PannelloAdmin() {
               etichetta: "Exchange",
               contatore: exchangeNuove,
             },
+            // Aperta a tutto lo staff, con poteri diversi dentro: SUPPORTO
+            // guarda e segnala, ADMIN blocca, DEVELOPER bandisce. Il
+            // contatore mostra le segnalazioni solo a chi può deciderle —
+            // per SUPPORTO sarebbe un numero su cui non può agire.
+            {
+              id: "utenti",
+              etichetta: "Utenti",
+              contatore: bloccaAccount ? segnalazioniAperte.length : 0,
+            },
             // Il contenuto del sito (piani, testi, vetrina) e la gestione
             // dei ruoli restano riservati a chi ha ruolo DEVELOPER: ADMIN e
             // SUPPORTO non vedono queste schede, non solo non possono
@@ -378,6 +470,73 @@ export default async function PannelloAdmin() {
                 sottoscrizioni={sottoscrizioni}
                 piani={abbonamenti}
                 puoGestire={gestisceOperazioni}
+              />
+            ),
+            utenti: (
+              <SezioneUtenti
+                puoSegnalare={segnalaUtenti}
+                puoBloccare={bloccaAccount}
+                puoBandire={bandisceRete}
+                // Le date attraversano il confine server/client: si passano
+                // come stringhe ISO invece che come Date, che Next dovrebbe
+                // serializzare comunque e che al client arriverebbe come
+                // stringa senza che i tipi lo dicano.
+                utenti={utentiAnagrafica.map((utente) => ({
+                  id: utente.id,
+                  telegramId: utente.telegramId,
+                  username: utente.username,
+                  nome: utente.nome,
+                  ruolo: utente.ruolo,
+                  creatoIl: utente.creatoIl.toISOString(),
+                  bloccato: utente.bloccato,
+                  bloccatoIl: utente.bloccatoIl?.toISOString() ?? null,
+                  motivoBlocco: utente.motivoBlocco,
+                  abbonamenti: utente.abbonamentiUtente.map((voce) => ({
+                    id: voce.id,
+                    codice: voce.codice,
+                    nome: voce.abbonamento.nome,
+                    stato: voce.stato,
+                    scadeIl: voce.scadeIl?.toISOString() ?? null,
+                  })),
+                  richieste: utente.richieste.map((voce) => ({
+                    id: voce.id,
+                    numero: voce.numero,
+                    codice: voce.codice,
+                    ambito: voce.ambito,
+                    stato: voce.stato,
+                    creatoIl: voce.creatoIl.toISOString(),
+                  })),
+                  richiesteAperte: utente.richieste.filter((voce) =>
+                    ["NUOVA", "IN_LAVORAZIONE", "IN_ATTESA_CLIENTE"].includes(
+                      voce.stato,
+                    ),
+                  ).length,
+                  segnalazioniAperte: utente._count.segnalazioniRicevute,
+                }))}
+                segnalazioni={
+                  bloccaAccount
+                    ? segnalazioniAperte.map((voce) => ({
+                        id: voce.id,
+                        motivo: voce.motivo,
+                        stato: voce.stato,
+                        creatoIl: voce.creatoIl.toISOString(),
+                        utente: voce.utente,
+                        autore: voce.autore,
+                      }))
+                    : []
+                }
+                bandi={
+                  bandisceRete
+                    ? bandiAttivi.map((voce) => ({
+                        id: voce.id,
+                        tipo: voce.tipo,
+                        valore: voce.valore,
+                        motivo: voce.motivo,
+                        creatoIl: voce.creatoIl.toISOString(),
+                        scadeIl: voce.scadeIl?.toISOString() ?? null,
+                      }))
+                    : []
+                }
               />
             ),
             ...(gestisceContenuti

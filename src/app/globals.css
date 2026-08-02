@@ -391,6 +391,25 @@ body {
   animation: comparsa-ritardata 1.1s ease-in-out infinite;
 }
 
+/* Ingresso della pagina nuova. Nessun fill-mode di proposito: finita
+   l'animazione l'elemento torna al suo stato naturale, che è già quello
+   finale. Se l'animazione non parte affatto, il contenuto è visibile
+   comunque — è la proprietà che qui conta più della dissolvenza stessa. */
+@keyframes entra-pagina {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.transizione-pagina {
+  animation: entra-pagina 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 /* Selezione coerente con l'accento. */
 ::selection {
   background: var(--accento);
@@ -405,6 +424,7 @@ body {
   .cursore::after,
   .nastro,
   .evidenziata,
+  .transizione-pagina,
   /* animate-ping è una classe di Tailwind: non passa da useReducedMotion
      e senza questa riga continuerebbe a pulsare. */
   .animate-ping,

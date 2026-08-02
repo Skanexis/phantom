@@ -12,8 +12,9 @@ import {
   etichetteStato,
   etichetteStatoAbbonamento,
 } from "@/lib/telegram-bot";
-import { escapeHtml, notificaUtente } from "@/lib/notifiche";
+import { escapeHtml, notificaAdmin, notificaUtente } from "@/lib/notifiche";
 import { liberaIp } from "@/lib/sorveglianza";
+import { aggiungiLocale, togliLocale } from "@/lib/bandi";
 import { dataBreve, scadenzaDaPeriodo } from "@/lib/abbonamenti";
 import { linkRichiesta } from "@/lib/richieste";
 import { LUNGHEZZA_MASSIMA, inviaMessaggioAdmin } from "@/lib/messaggi";
@@ -741,4 +742,200 @@ export async function impostaRuoloUtente(dati: FormData) {
   });
 
   revalidatePath("/admin");
+}
+
+/* ---------------------------------- Utenti ---------------------------------- */
+
+/**
+ * Tre poteri distinti sulla stessa scheda, e la distinzione è il punto:
+ *
+ * - SUPPORTO vede e **segnala**: incontra i clienti tutto il giorno ed è il
+ *   primo ad accorgersi di un problema, ma non decide le sanzioni;
+ * - ADMIN **blocca l'account**: è una decisione sul cliente, reversibile e
+ *   con un nome sopra;
+ * - DEVELOPER **bandisce indirizzo e dispositivo**: colpisce chi un account
+ *   non ce l'ha, o se n'è già fatto un altro, e può prendere dentro persone
+ *   estranee — per questo sta al livello più stretto.
+ */
+
+/** Segnalazione di un account a chi può agire. Aperta a tutto lo staff. */
+export async function segnalaUtente(dati: FormData) {
+  const autore = await assicuraStaff();
+
+  const utenteId = stringa(dati, "utenteId");
+  const motivo = stringa(dati, "motivo").slice(0, 500);
+  if (!utenteId || motivo.length < 5) return;
+
+  const bersaglio = await prisma.utente.findUnique({
+    where: { id: utenteId },
+    select: { id: true, username: true, telegramId: true },
+  });
+  if (!bersaglio) return;
+
+  // Una segnalazione già aperta sullo stesso account non ne genera una
+  // seconda: sotto un cliente molesto lo staff ne aprirebbe una a testa, e
+  // il pannello degli admin diventerebbe l'elenco di chi se n'è accorto
+  // invece dell'elenco dei casi da decidere.
+  const gia = await prisma.segnalazione.findFirst({
+    where: { utenteId, stato: { in: ["APERTA", "PRESA_IN_CARICO"] } },
+    select: { id: true },
+  });
+  if (gia) {
+    await prisma.segnalazione.update({
+      where: { id: gia.id },
+      data: { motivo: `${motivo}\n— aggiunta da ${autore.telegramId}` },
+    });
+    rinfresca();
+    return;
+  }
+
+  await prisma.segnalazione.create({
+    data: { utenteId, autoreId: autore.id, motivo },
+  });
+
+  const nome = bersaglio.username
+    ? `@${bersaglio.username}`
+    : bersaglio.telegramId;
+
+  await notificaAdmin(
+    `<b>Segnalazione su ${escapeHtml(nome)}</b>\n\n${escapeHtml(motivo)}\n\nDa: ${escapeHtml(autore.username ? `@${autore.username}` : autore.telegramId)}`,
+    { segnalazione: true },
+  );
+
+  rinfresca();
+}
+
+/** Chiude una segnalazione. Solo chi può anche agire di conseguenza. */
+export async function chiudiSegnalazione(dati: FormData) {
+  await assicuraOperatore();
+
+  const id = stringa(dati, "id");
+  const esito = stringa(dati, "esito").slice(0, 300);
+  if (!id) return;
+
+  await prisma.segnalazione.update({
+    where: { id },
+    data: { stato: "CHIUSA", esito: esito || null, chiusoIl: new Date() },
+  });
+
+  rinfresca();
+}
+
+/**
+ * Blocca o sblocca un account.
+ *
+ * Il ruolo non viene toccato: un account bloccato lo conserva e lo ritrova
+ * intatto allo sblocco. Degradarlo a UTENTE "per sicurezza" perderebbe
+ * l'informazione per sempre, e il giorno del ripensamento nessuno saprebbe
+ * più cosa era prima.
+ */
+export async function cambiaBloccoUtente(dati: FormData) {
+  const operatore = await assicuraOperatore();
+
+  const utenteId = stringa(dati, "utenteId");
+  const blocca = booleano(dati, "blocca");
+  const motivo = stringa(dati, "motivo").slice(0, 300);
+  if (!utenteId) return;
+
+  const bersaglio = await prisma.utente.findUnique({
+    where: { id: utenteId },
+    select: { id: true, ruolo: true, telegramId: true },
+  });
+  if (!bersaglio) return;
+
+  // Nessuno blocca sé stesso: è l'errore di distrazione che costa una
+  // sessione sul server per rimediare, e non ha nessun uso legittimo.
+  if (bersaglio.id === operatore.id) return;
+
+  // Un DEVELOPER non si blocca dal pannello. È lo stesso principio per cui
+  // quel ruolo si assegna solo da console: l'ultimo livello di accesso non
+  // deve poter essere chiuso fuori da chi sta sotto.
+  if (bersaglio.ruolo === "DEVELOPER") return;
+
+  await prisma.utente.update({
+    where: { id: utenteId },
+    data: blocca
+      ? {
+          bloccato: true,
+          bloccatoIl: new Date(),
+          motivoBlocco: motivo || "nessun motivo indicato",
+          bloccatoDaId: operatore.id,
+        }
+      : {
+          bloccato: false,
+          bloccatoIl: null,
+          motivoBlocco: null,
+          bloccatoDaId: null,
+        },
+  });
+
+  // Il perimetro lavora su una copia in memoria: senza questa riga
+  // l'effetto arriverebbe al giro di sincronizzazione successivo, e chi
+  // preme "blocca" vedrebbe la persona continuare a navigare.
+  if (blocca) aggiungiLocale("account", utenteId);
+  else togliLocale("account", utenteId);
+
+  // Avvisato solo lo sblocco. Al blocco la persona se ne accorge da sola
+  // alla richiesta successiva, e mandarle un messaggio significherebbe
+  // spiegarle di essere stata scoperta.
+  if (!blocca) {
+    await notificaUtente({
+      utenteId,
+      telegramId: bersaglio.telegramId,
+      titolo: "Accesso ripristinato",
+      testo: "Il tuo account è di nuovo attivo.",
+    });
+  }
+
+  rinfresca();
+}
+
+/** Bandisce un indirizzo o un dispositivo. Solo DEVELOPER. */
+export async function creaBando(dati: FormData) {
+  const autore = await assicuraSviluppatore();
+
+  const tipo = stringa(dati, "tipo");
+  const valore = stringa(dati, "valore").slice(0, 100);
+  const motivo = stringa(dati, "motivo").slice(0, 300);
+  const giorni = numero(dati, "giorni", 0);
+
+  if ((tipo !== "IP" && tipo !== "DISPOSITIVO") || !valore) return;
+
+  const scadeIl =
+    giorni > 0 ? new Date(Date.now() + giorni * 24 * 60 * 60 * 1000) : null;
+
+  // upsert e non create: ribandire un indirizzo già in elenco è un gesto
+  // normale — si allunga la scadenza o si corregge il motivo — e non deve
+  // fallire per violazione di unicità.
+  await prisma.bando.upsert({
+    where: { tipo_valore: { tipo, valore } },
+    create: {
+      tipo,
+      valore,
+      motivo: motivo || "nessun motivo indicato",
+      scadeIl,
+      autoreId: autore.id,
+    },
+    update: {
+      motivo: motivo || "nessun motivo indicato",
+      scadeIl,
+      autoreId: autore.id,
+    },
+  });
+
+  aggiungiLocale(tipo === "IP" ? "ip" : "dispositivi", valore);
+  rinfresca();
+}
+
+/** Revoca un bando. La riga resta a database come storico. */
+export async function revocaBando(dati: FormData) {
+  await assicuraSviluppatore();
+
+  const id = stringa(dati, "id");
+  if (!id) return;
+
+  const bando = await prisma.bando.delete({ where: { id } });
+  togliLocale(bando.tipo === "IP" ? "ip" : "dispositivi", bando.valore);
+
+  rinfresca();
 }

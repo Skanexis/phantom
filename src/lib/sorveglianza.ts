@@ -54,7 +54,15 @@ export type TipoEvento =
   /** Tentativo di raggiungere un'area riservata senza averne diritto. */
   | "accesso"
   /** Richiesta rifiutata perché l'IP è in quarantena. */
-  | "quarantena";
+  | "quarantena"
+  /**
+   * Richiesta respinta da un blocco deciso dallo staff: account, indirizzo
+   * o dispositivo. Tenuto distinto da "accesso" di proposito — quello è un
+   * tentativo di entrare dove non si può, e merita una notifica; questo è
+   * un provvedimento che sta funzionando, e chi è bloccato ricarica la
+   * pagina dieci volte prima di arrendersi.
+   */
+  | "esclusione";
 
 export const TIPI_EVENTO: TipoEvento[] = [
   "webhook",
@@ -64,6 +72,7 @@ export const TIPI_EVENTO: TipoEvento[] = [
   "origine",
   "frequenza_utente",
   "flussi",
+  "esclusione",
   "quarantena",
   "frequenza",
   "sonda",
@@ -89,6 +98,103 @@ export type SchedaIp = {
   ultimoVisto: number;
   ultimoPercorso: string;
   agente: string;
+  /** Ultimo account visto da questo indirizzo, se ce n'è stato uno. */
+  utenteId?: string;
+  telegramId?: string;
+  ruolo?: string;
+};
+
+/* --------------------------- Registro e identità -------------------------- */
+
+/**
+ * Gravità di una riga del registro. È una scala sola per tutto il sistema:
+ * la usano il perimetro, le rotte e il giudizio sulle richieste insolite,
+ * così nel pannello un "allarme" significa la stessa cosa da qualunque
+ * parte arrivi.
+ */
+export type LivelloRiga = "info" | "avviso" | "allarme" | "critico";
+
+/**
+ * Chi ha fatto la richiesta, quando si sa.
+ *
+ * Viene dal token di sessione firmato, non dal database: il perimetro non
+ * può interrogare Prisma a ogni richiesta senza diventare esso stesso il
+ * collo di bottiglia. Il nome leggibile lo aggiunge il pannello, che una
+ * lettura al database se la può permettere.
+ */
+export type Identita = {
+  utenteId: string;
+  telegramId: string;
+  ruolo: string;
+} | null;
+
+/**
+ * Una riga della console. A differenza di `EventoSicurezza`, che esiste
+ * solo per ciò che è stato respinto, qui finisce **ogni** richiesta: senza
+ * le righe ordinarie non si può rispondere alla domanda che conta davvero
+ * quando qualcosa scatta, cioè cosa stava facendo quell'indirizzo nei
+ * minuti precedenti.
+ */
+export type RigaRegistro = {
+  id: number;
+  quando: number;
+  livello: LivelloRiga;
+  metodo: string;
+  percorso: string;
+  ip: string;
+  utenteId: string | null;
+  telegramId: string | null;
+  ruolo: string | null;
+  agente: string;
+  /** Cosa ha deciso il perimetro: passata, respinta, deviata. */
+  esito: string;
+  /** Stato HTTP, quando la richiesta si è fermata qui. */
+  stato: number | null;
+  /** Presente solo sulle righe nate da un evento di sicurezza. */
+  tipo?: TipoEvento;
+  /** Perché la riga non è ordinaria. Vuoto sulle righe normali. */
+  motivi: string[];
+  /** Tempo speso dentro il perimetro, in millisecondi. */
+  durataMs: number;
+};
+
+/**
+ * Scheda per account. L'indirizzo IP da solo non è un'identità: cambia con
+ * la rete, è condiviso da tutta una casa e non dice nulla su chi c'è
+ * dietro. Legando l'IP alla sessione nel momento in cui qualcuno entra nel
+ * proprio account, la stessa persona resta riconoscibile anche quando si
+ * sposta — e le richieste anonime restano quello che sono, un indirizzo e
+ * basta.
+ */
+export type SchedaUtente = {
+  utenteId: string;
+  telegramId: string;
+  ruolo: string;
+  /** Indirizzi da cui questo account si è collegato, dal più recente. */
+  indirizzi: string[];
+  richieste: number;
+  eventi: number;
+  primoVisto: number;
+  ultimoVisto: number;
+  ultimoPercorso: string;
+};
+
+/**
+ * Avviso in attesa di essere spedito su Telegram.
+ *
+ * La coda esiste perché chi produce l'avviso non può spedirlo: il
+ * perimetro gira sul percorso caldo e non deve né conoscere il database
+ * (per sapere chi sono gli sviluppatori) né aspettare una chiamata di rete
+ * verso Telegram. Qui si deposita, e un compito periodico svuota.
+ */
+export type Allerta = {
+  id: number;
+  quando: number;
+  gravita: "alta" | "media";
+  titolo: string;
+  righe: string[];
+  /** Identifica la famiglia dell'avviso, per il raffreddamento. */
+  chiave: string;
 };
 
 /**
@@ -120,18 +226,29 @@ type Totali = {
   eventi: number;
   perTipo: Partial<Record<TipoEvento, number>>;
   quarantene: number;
+  /** Quante richieste per metodo HTTP: GET, POST, e le rarità. */
+  perMetodo: Record<string, number>;
+  /** Quante righe per gravità: è la misura di quanto è "rumoroso" il sito. */
+  perLivello: Record<LivelloRiga, number>;
 };
 
 type Deposito = {
   avvio: number;
   seq: number;
   eventi: EventoSicurezza[];
+  registro: RigaRegistro[];
   ip: Map<string, SchedaIp>;
+  utenti: Map<string, SchedaUtente>;
   sospetti: Map<string, Sospetto>;
   percorsi: Map<string, number>;
   minuti: Map<number, Minuto>;
   quarantena: Map<string, Quarantena>;
   totali: Totali;
+  allerte: Allerta[];
+  /** Ultima spedizione per chiave d'avviso: alimenta il raffreddamento. */
+  raffreddamento: Map<string, number>;
+  /** Avvisi scartati perché la coda era piena: si dichiara, non si nasconde. */
+  allertePerse: number;
 };
 
 /* ------------------------------ Dimensioni ------------------------------ */
@@ -140,6 +257,24 @@ type Deposito = {
 const MAX_EVENTI = 800;
 /** Quanti il pannello ne riceve: il resto resta qui, non serve trasmetterlo. */
 const EVENTI_IN_VETRINA = 150;
+/**
+ * Righe di console conservate. Più alto del giornale degli eventi perché
+ * qui finisce ogni richiesta, non solo quelle respinte: è la finestra
+ * entro cui si può ancora ricostruire cosa è successo prima di un blocco.
+ */
+const MAX_REGISTRO = 1500;
+/**
+ * Quante ne riceve il pannello. Ordinamento e filtri lavorano su questa
+ * finestra, non sull'intero deposito: mandarne millecinquecento a ogni
+ * giro di aggiornamento costerebbe più della sorveglianza stessa.
+ */
+const REGISTRO_IN_VETRINA = 400;
+/** Account riconosciuti tenuti in memoria. */
+const MAX_UTENTI = 2000;
+/** Indirizzi ricordati per account: bastano a vedere uno spostamento. */
+const MAX_IP_PER_UTENTE = 8;
+/** Avvisi in attesa di spedizione. Oltre, si contano soltanto. */
+const MAX_ALLERTE = 60;
 /** Indirizzi tracciati insieme. Il tetto è ciò che rende la mappa sicura. */
 const MAX_IP = 5000;
 /** Indirizzi con eventi tenuti sotto osservazione. */
@@ -174,12 +309,24 @@ function deposito(): Deposito {
     avvio: Date.now(),
     seq: 0,
     eventi: [],
+    registro: [],
     ip: new Map(),
+    utenti: new Map(),
     sospetti: new Map(),
     percorsi: new Map(),
     minuti: new Map(),
     quarantena: new Map(),
-    totali: { richieste: 0, eventi: 0, perTipo: {}, quarantene: 0 },
+    totali: {
+      richieste: 0,
+      eventi: 0,
+      perTipo: {},
+      quarantene: 0,
+      perMetodo: {},
+      perLivello: { info: 0, avviso: 0, allarme: 0, critico: 0 },
+    },
+    allerte: [],
+    raffreddamento: new Map(),
+    allertePerse: 0,
   };
 
   return globale.__sorveglianza;
@@ -232,19 +379,31 @@ function pota<T extends { ultimoVisto?: number; ultimo?: number }>(
   }
 }
 
-/** Registra una richiesta qualunque: alimenta traffico e schede per IP. */
-export function traccia(
-  ip: string,
-  metodo: string,
-  percorso: string,
-  agente: string | null,
-) {
+/**
+ * Registra una richiesta qualunque: alimenta traffico, schede per IP e —
+ * quando la richiesta porta una sessione — la scheda dell'account.
+ *
+ * Restituisce `nuovoIp`, che il chiamante usa per giudicare quanto è
+ * insolita la richiesta: qui la risposta costa una lettura di mappa già
+ * fatta, ricavarla fuori significherebbe farne una seconda.
+ */
+export function traccia(dati: {
+  ip: string;
+  metodo: string;
+  percorso: string;
+  agente: string | null;
+  identita?: Identita;
+}): { nuovoIp: boolean } {
   const dep = deposito();
   const adesso = Date.now();
   const minuto = minutoCorrente();
-  const pulito = ripulisci(percorso, 200);
+  const pulito = ripulisci(dati.percorso, 200);
+  const { ip, identita } = dati;
 
   dep.totali.richieste += 1;
+
+  const metodo = ripulisci(dati.metodo, 12).toUpperCase() || "?";
+  dep.totali.perMetodo[metodo] = (dep.totali.perMetodo[metodo] ?? 0) + 1;
 
   const riga = dep.minuti.get(minuto) ?? {
     totale: 0,
@@ -263,10 +422,17 @@ export function traccia(
   else if (dep.percorsi.size < MAX_PERCORSI) dep.percorsi.set(pulito, 1);
 
   const scheda = dep.ip.get(ip);
+  const nuovoIp = !scheda;
+
   if (scheda) {
     scheda.richieste += 1;
     scheda.ultimoVisto = adesso;
     scheda.ultimoPercorso = pulito;
+    if (identita) {
+      scheda.utenteId = identita.utenteId;
+      scheda.telegramId = identita.telegramId;
+      scheda.ruolo = identita.ruolo;
+    }
   } else {
     dep.ip.set(ip, {
       ip,
@@ -275,10 +441,190 @@ export function traccia(
       primoVisto: adesso,
       ultimoVisto: adesso,
       ultimoPercorso: pulito,
-      agente: ripulisci(agente, 160),
+      agente: ripulisci(dati.agente, 160),
+      utenteId: identita?.utenteId,
+      telegramId: identita?.telegramId,
+      ruolo: identita?.ruolo,
     });
     pota(dep.ip, MAX_IP);
   }
+
+  if (identita) legaAccount(dep, identita, ip, pulito, adesso);
+
+  return { nuovoIp };
+}
+
+/**
+ * Associa l'indirizzo all'account che lo sta usando in questo momento.
+ *
+ * L'elenco degli indirizzi tiene solo i più recenti e senza ripetizioni:
+ * un utente con IP dinamico ne cambierebbe uno al giorno, e una lista che
+ * cresce all'infinito sarebbe insieme inutile da leggere e un modo per far
+ * gonfiare la memoria restando collegati.
+ */
+function legaAccount(
+  dep: Deposito,
+  identita: NonNullable<Identita>,
+  ip: string,
+  percorso: string,
+  adesso: number,
+) {
+  const scheda = dep.utenti.get(identita.utenteId);
+
+  if (!scheda) {
+    dep.utenti.set(identita.utenteId, {
+      utenteId: identita.utenteId,
+      telegramId: identita.telegramId,
+      ruolo: identita.ruolo,
+      indirizzi: [ip],
+      richieste: 1,
+      eventi: 0,
+      primoVisto: adesso,
+      ultimoVisto: adesso,
+      ultimoPercorso: percorso,
+    });
+    pota(dep.utenti, MAX_UTENTI);
+    return;
+  }
+
+  scheda.richieste += 1;
+  scheda.ultimoVisto = adesso;
+  scheda.ultimoPercorso = percorso;
+  scheda.ruolo = identita.ruolo;
+
+  if (scheda.indirizzi[0] !== ip) {
+    scheda.indirizzi = [
+      ip,
+      ...scheda.indirizzi.filter((voce) => voce !== ip),
+    ].slice(0, MAX_IP_PER_UTENTE);
+  }
+}
+
+/* ------------------------------- Console -------------------------------- */
+
+/**
+ * Aggiunge una riga alla console.
+ *
+ * La potatura avviene a blocchi e non a ogni inserimento: `splice` di un
+ * elemento su un array pieno costa quanto l'array, e questa funzione sta
+ * sul percorso di ogni singola richiesta — pagare quel prezzo un colpo su
+ * quattro invece che sempre è la differenza fra una misura e un freno.
+ */
+export function annota(riga: {
+  livello: LivelloRiga;
+  metodo: string;
+  percorso: string;
+  ip: string;
+  agente?: string | null;
+  identita?: Identita;
+  esito: string;
+  stato?: number | null;
+  tipo?: TipoEvento;
+  motivi?: string[];
+  durataMs?: number;
+}): RigaRegistro {
+  const dep = deposito();
+  dep.seq += 1;
+
+  const voce: RigaRegistro = {
+    id: dep.seq,
+    quando: Date.now(),
+    livello: riga.livello,
+    metodo: ripulisci(riga.metodo, 12).toUpperCase() || "?",
+    percorso: ripulisci(riga.percorso, 300),
+    ip: riga.ip,
+    utenteId: riga.identita?.utenteId ?? null,
+    telegramId: riga.identita?.telegramId ?? null,
+    ruolo: riga.identita?.ruolo ?? null,
+    agente: ripulisci(riga.agente, 160),
+    esito: ripulisci(riga.esito, 40),
+    stato: riga.stato ?? null,
+    tipo: riga.tipo,
+    motivi: (riga.motivi ?? []).map((motivo) => ripulisci(motivo, 120)),
+    durataMs: riga.durataMs ?? 0,
+  };
+
+  dep.registro.push(voce);
+  dep.totali.perLivello[voce.livello] += 1;
+
+  if (dep.registro.length > MAX_REGISTRO) {
+    dep.registro.splice(0, Math.ceil(MAX_REGISTRO * 0.25));
+  }
+
+  return voce;
+}
+
+/* -------------------------------- Avvisi --------------------------------- */
+
+/**
+ * Deposita un avviso da spedire agli sviluppatori.
+ *
+ * Il raffreddamento sta qui e non in chi spedisce, per un motivo preciso:
+ * sotto una raffica questa funzione viene chiamata centinaia di volte, e
+ * accodare centinaia di avvisi identici per poi scartarli al momento
+ * dell'invio significherebbe far pagare l'attacco alla memoria del
+ * processo. Si scarta subito, all'ingresso.
+ */
+export function accodaAllerta(allerta: {
+  gravita: "alta" | "media";
+  titolo: string;
+  righe: string[];
+  chiave: string;
+  /** Minuti di silenzio per questa chiave dopo un avviso. */
+  raffreddamentoMinuti?: number;
+}): boolean {
+  const dep = deposito();
+  const adesso = Date.now();
+  const attesa = (allerta.raffreddamentoMinuti ?? 10) * 60_000;
+
+  const ultimo = dep.raffreddamento.get(allerta.chiave) ?? 0;
+  if (adesso - ultimo < attesa) return false;
+  dep.raffreddamento.set(allerta.chiave, adesso);
+
+  // La mappa del raffreddamento ha una chiave per IP: senza tetto sarebbe
+  // il solito modo per farla crescere all'infinito bussando da indirizzi
+  // sempre diversi.
+  if (dep.raffreddamento.size > 2000) {
+    for (const [chiave, quando] of dep.raffreddamento) {
+      if (adesso - quando > 60 * 60_000) dep.raffreddamento.delete(chiave);
+    }
+  }
+
+  if (dep.allerte.length >= MAX_ALLERTE) {
+    dep.allertePerse += 1;
+    return false;
+  }
+
+  dep.seq += 1;
+  dep.allerte.push({
+    id: dep.seq,
+    quando: adesso,
+    gravita: allerta.gravita,
+    titolo: ripulisci(allerta.titolo, 120),
+    righe: allerta.righe.map((voce) => ripulisci(voce, 200)),
+    chiave: allerta.chiave,
+  });
+
+  return true;
+}
+
+/**
+ * Svuota la coda e la restituisce. Chiamata dal compito periodico: prende
+ * tutto in una volta perché così un solo messaggio può riassumere una
+ * raffica, invece di generare una notifica per evento.
+ */
+export function prelevaAllerte(): { allerte: Allerta[]; perse: number } {
+  const dep = deposito();
+  if (dep.allerte.length === 0 && dep.allertePerse === 0) {
+    return { allerte: [], perse: 0 };
+  }
+
+  const allerte = dep.allerte;
+  const perse = dep.allertePerse;
+  dep.allerte = [];
+  dep.allertePerse = 0;
+
+  return { allerte, perse };
 }
 
 /**
@@ -292,6 +638,9 @@ export function segnala(evento: {
   percorso?: string;
   agente?: string | null;
   dettaglio?: string;
+  identita?: Identita;
+  stato?: number | null;
+  durataMs?: number;
 }): boolean {
   const dep = deposito();
   const adesso = Date.now();
@@ -324,6 +673,38 @@ export function segnala(evento: {
     scheda.ultimoVisto = adesso;
   }
 
+  // Lo stesso evento compare anche nella console, con la gravità della sua
+  // famiglia: chi legge il registro riga per riga non deve saltare su un
+  // altro pannello per accorgersi che una richiesta è stata respinta.
+  const identita =
+    evento.identita ??
+    (scheda?.utenteId && scheda.telegramId && scheda.ruolo
+      ? {
+          utenteId: scheda.utenteId,
+          telegramId: scheda.telegramId,
+          ruolo: scheda.ruolo,
+        }
+      : null);
+
+  if (identita) {
+    const account = dep.utenti.get(identita.utenteId);
+    if (account) account.eventi += 1;
+  }
+
+  annota({
+    livello: LIVELLO_EVENTO[evento.tipo],
+    metodo: evento.metodo ?? "",
+    percorso: evento.percorso ?? "",
+    ip: evento.ip,
+    agente: evento.agente,
+    identita,
+    esito: "respinta",
+    stato: evento.stato ?? null,
+    tipo: evento.tipo,
+    motivi: evento.dettaglio ? [evento.dettaglio] : [],
+    durataMs: evento.durataMs,
+  });
+
   // Un evento generato DALLA quarantena non deve prolungare la quarantena:
   // altrimenti chi continua a bussare resta chiuso fuori per sempre, e la
   // misura smette di essere temporanea senza che nessuno l'abbia deciso.
@@ -342,8 +723,80 @@ export function segnala(evento: {
   dep.sospetti.set(evento.ip, sospetto);
   pota(dep.sospetti, MAX_SOSPETTI);
 
-  return valutaQuarantena(dep, evento.ip, sospetto, adesso, evento.tipo);
+  // Gli eventi che pesano davvero partono subito verso Telegram, senza
+  // aspettare che l'indirizzo accumuli abbastanza colpi per la quarantena:
+  // un segreto del webhook sbagliato è già di per sé una notizia.
+  if (LIVELLO_EVENTO[evento.tipo] === "critico") {
+    accodaAllerta({
+      gravita: "alta",
+      titolo: `${ETICHETTA_EVENTO[evento.tipo]} da ${evento.ip}`,
+      righe: [
+        `${evento.metodo ?? ""} ${ripulisci(evento.percorso, 120)}`.trim(),
+        evento.dettaglio ? ripulisci(evento.dettaglio, 160) : "",
+        identita ? `account telegram ${identita.telegramId}` : "senza account",
+      ].filter(Boolean),
+      chiave: `evento:${evento.tipo}:${evento.ip}`,
+      raffreddamentoMinuti: 10,
+    });
+  }
+
+  const condannato = valutaQuarantena(
+    dep,
+    evento.ip,
+    sospetto,
+    adesso,
+    evento.tipo,
+  );
+
+  if (condannato) {
+    accodaAllerta({
+      gravita: "alta",
+      titolo: `Indirizzo in quarantena: ${evento.ip}`,
+      righe: [
+        dep.quarantena.get(evento.ip)?.motivo ?? "",
+        `ultimo percorso: ${ripulisci(evento.percorso, 120)}`,
+        scheda?.agente ? `agente: ${scheda.agente}` : "",
+      ].filter(Boolean),
+      chiave: `quarantena:${evento.ip}`,
+      raffreddamentoMinuti: 30,
+    });
+  }
+
+  return condannato;
 }
+
+/**
+ * Gravità di ogni famiglia di eventi, in una scala sola con il resto del
+ * sistema. "critico" significa: sveglia lo sviluppatore adesso.
+ */
+export const LIVELLO_EVENTO: Record<TipoEvento, LivelloRiga> = {
+  webhook: "critico",
+  accesso: "critico",
+  iniezione: "critico",
+  gate: "allarme",
+  origine: "allarme",
+  frequenza_utente: "allarme",
+  flussi: "avviso",
+  esclusione: "avviso",
+  quarantena: "allarme",
+  frequenza: "avviso",
+  sonda: "info",
+};
+
+/** Nome leggibile della famiglia, per gli avvisi su Telegram. */
+const ETICHETTA_EVENTO: Record<TipoEvento, string> = {
+  sonda: "Sonda automatica",
+  iniezione: "Firma d'attacco nell'URL",
+  origine: "Origine non valida",
+  frequenza: "Troppe richieste per IP",
+  frequenza_utente: "Troppe richieste per account",
+  gate: "Password del cantiere sbagliata",
+  webhook: "Webhook con segreto errato",
+  flussi: "Troppe connessioni in tempo reale",
+  accesso: "Tentativo di accesso a un'area riservata",
+  esclusione: "Richiesta da soggetto escluso",
+  quarantena: "Richiesta da indirizzo in quarantena",
+};
 
 /**
  * Decide se l'indirizzo ha superato la soglia.
@@ -543,6 +996,15 @@ export function istantanea() {
     (voce) => voce.richieste,
   );
 
+  // Account visti di recente: è la risposta a "chi c'è dentro adesso", che
+  // il conteggio delle connessioni in tempo reale da solo non dà — una
+  // persona può essere collegata senza tenere aperta nessuna scheda.
+  const utenti = primi(
+    dep.utenti.values(),
+    IN_CLASSIFICA,
+    (voce) => voce.ultimoVisto,
+  ).sort((a, b) => b.ultimoVisto - a.ultimoVisto);
+
   const percorsi = primi(
     [...dep.percorsi.entries()],
     12,
@@ -565,6 +1027,14 @@ export function istantanea() {
     sospettiTracciati: dep.sospetti.size,
     percorsiTracciati: dep.percorsi.size,
     eventi: dep.eventi.slice(-EVENTI_IN_VETRINA).reverse(),
+    // La console arriva già dal più recente: è l'ordine in cui la si legge,
+    // e farlo girare al client significherebbe rovesciare quattrocento
+    // righe a ogni aggiornamento invece che una volta qui.
+    registro: dep.registro.slice(-REGISTRO_IN_VETRINA).reverse(),
+    registroTracciato: dep.registro.length,
+    utenti,
+    utentiTracciati: dep.utenti.size,
+    allerteInCoda: dep.allerte.length,
     sospetti,
     indirizzi,
     percorsi,
@@ -636,4 +1106,61 @@ function valutaMinaccia(dati: {
   }
 
   return { livello: "calmo", motivo: "traffico nella norma" };
+}
+
+/**
+ * Controllo periodico del perimetro, indipendente dal pannello.
+ *
+ * `istantanea()` valuta la minaccia, ma solo quando qualcuno sta guardando:
+ * legare l'allarme all'apertura di una scheda significherebbe accorgersi di
+ * un attacco esattamente quando non serve più. Questa gira da sola e non
+ * costruisce nulla — legge i contatori del minuto corrente e basta.
+ */
+export function vigila() {
+  const dep = deposito();
+  const adesso = Date.now();
+  const minuto = minutoCorrente();
+
+  const corrente = dep.minuti.get(minuto);
+  const precedenti: number[] = [];
+  for (let i = 1; i < MINUTI_STORICO; i += 1) {
+    const riga = dep.minuti.get(minuto - i);
+    if (riga && riga.totale > 0) precedenti.push(riga.totale);
+  }
+  const media =
+    precedenti.length > 0
+      ? precedenti.reduce((t, v) => t + v, 0) / precedenti.length
+      : 0;
+
+  let attive = 0;
+  for (const voce of dep.quarantena.values()) {
+    if (voce.fino > adesso) attive += 1;
+  }
+
+  const minaccia = valutaMinaccia({
+    alMinuto: corrente?.totale ?? 0,
+    bloccateAlMinuto: corrente?.bloccate ?? 0,
+    media,
+    inQuarantena: attive,
+  });
+
+  if (minaccia.livello === "calmo") return minaccia;
+
+  accodaAllerta({
+    gravita: minaccia.livello === "allarme" ? "alta" : "media",
+    titolo: `Perimetro: ${minaccia.livello}`,
+    righe: [
+      minaccia.motivo,
+      `${corrente?.totale ?? 0} richieste e ${corrente?.bloccate ?? 0} respinte nell'ultimo minuto`,
+      `media dell'ora: ${Math.round(media * 10) / 10} richieste/min`,
+      attive > 0 ? `${attive} indirizzi in quarantena` : "",
+    ].filter(Boolean),
+    chiave: `perimetro:${minaccia.livello}`,
+    // Lungo di proposito: sotto attacco questo controllo scatterebbe a ogni
+    // giro, e una notifica al minuto per mezz'ora non aggiunge nulla a
+    // quella che è arrivata per prima.
+    raffreddamentoMinuti: minaccia.livello === "allarme" ? 15 : 45,
+  });
+
+  return minaccia;
 }

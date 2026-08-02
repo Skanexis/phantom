@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Etichetta } from "@/components/ui";
 import { Icone, type NomeIcona } from "@/components/icone";
 import { liberaIndirizzo } from "../azioni";
+import { ConsoleRegistro } from "./console-registro";
 import type { Istantanea, TipoEvento } from "@/lib/sorveglianza";
 
 /**
@@ -20,6 +21,8 @@ import type { Istantanea, TipoEvento } from "@/lib/sorveglianza";
 const INTERVALLO_MS = 5000;
 
 type Dati = Istantanea & {
+  /** utenteId → nome leggibile, tradotto dal server. */
+  nomi: Record<string, string>;
   flussi: { connessioni: number; soggetti: number; massimoSingolo: number };
   carico: {
     utenti: number;
@@ -52,6 +55,7 @@ const ETICHETTE: Record<TipoEvento, string> = {
   webhook: "Webhook",
   flussi: "Connessioni SSE",
   accesso: "Accesso negato",
+  esclusione: "Escluso dallo staff",
   quarantena: "In quarantena",
 };
 
@@ -65,6 +69,7 @@ const ICONE_EVENTO: Record<TipoEvento, NomeIcona> = {
   webhook: "telegram",
   flussi: "rete",
   accesso: "allarme",
+  esclusione: "divieto",
   quarantena: "divieto",
 };
 
@@ -83,6 +88,7 @@ const GRAVITA: Record<TipoEvento, "alta" | "media" | "bassa"> = {
   frequenza_utente: "media",
   flussi: "media",
   quarantena: "media",
+  esclusione: "media",
   frequenza: "bassa",
   sonda: "bassa",
 };
@@ -357,6 +363,89 @@ export function SezioneSorveglianza() {
             },
           ]}
         />
+      </Sezione>
+
+      {/* ----------------------------- Console ----------------------------- */}
+      <Sezione
+        icona="registro"
+        titolo="Console del traffico"
+        nota={`${cifra(dati.totali.richieste)} richieste dall'avvio`}
+        accento={dati.totali.perLivello.critico > 0}
+      >
+        <ConsoleRegistro
+          righe={dati.registro}
+          nomi={dati.nomi}
+          tracciate={dati.registroTracciato}
+        />
+      </Sezione>
+
+      {/* ----------------------------- Account ----------------------------- */}
+      <Sezione
+        icona="utenti"
+        titolo={`Account riconosciuti (${cifra(dati.utentiTracciati)})`}
+        nota="l'indirizzo si lega all'account quando la sessione è attiva"
+      >
+        {dati.utenti.length === 0 ? (
+          <p className="mono text-[12px] text-[var(--testo-tenue)]">
+            Nessun account collegato da quando il processo è attivo. Il traffico
+            anonimo resta identificato dal solo indirizzo.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-[var(--bordo)] text-left">
+                  {["Account", "Ruolo", "Indirizzi", "Richieste", "Visto"].map(
+                    (voce) => (
+                      <th key={voce} className="pb-2 pr-3">
+                        <Etichetta>{voce}</Etichetta>
+                      </th>
+                    ),
+                  )}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--bordo)]">
+                {dati.utenti.map((riga) => (
+                  <tr key={riga.utenteId}>
+                    <td className="mono py-2 pr-3 text-[11.5px]">
+                      {dati.nomi[riga.utenteId] ?? riga.telegramId}
+                    </td>
+                    <td className="mono py-2 pr-3 text-[11px] text-[var(--testo-tenue)]">
+                      {riga.ruolo}
+                    </td>
+                    {/* Più di un indirizzo per lo stesso account non è di per
+                        sé un problema — casa, telefono, ufficio — ma è la
+                        prima cosa da guardare quando qualcosa non torna. */}
+                    <td className="mono py-2 pr-3 text-[11px]">
+                      <span className="flex flex-wrap gap-1">
+                        {riga.indirizzi.map((ip) => (
+                          <span
+                            key={ip}
+                            className="border border-[var(--bordo)] px-1.5 py-0.5 text-[10px]"
+                          >
+                            {ip}
+                          </span>
+                        ))}
+                      </span>
+                    </td>
+                    <td className="mono py-2 pr-3 text-[11.5px]">
+                      {cifra(riga.richieste)}
+                      {riga.eventi > 0 && (
+                        <span className="text-[var(--allarme)]">
+                          {" "}
+                          · {riga.eventi} respinte
+                        </span>
+                      )}
+                    </td>
+                    <td className="mono py-2 text-[11px] text-[var(--testo-debole)]">
+                      {orario(riga.ultimoVisto)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Sezione>
 
       {/* ---------------------------- Traffico ----------------------------- */}

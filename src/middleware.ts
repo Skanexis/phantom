@@ -2,13 +2,27 @@ import { NextResponse, type NextRequest } from "next/server";
 import { NOME_COOKIE_GATE, gateAttivo, verificaTokenGate } from "@/lib/gate";
 import { eMutante, ipClient, origineValida } from "@/lib/rete";
 import { registraTentativo } from "@/lib/limite";
-import { inQuarantena, segnala, traccia } from "@/lib/sorveglianza";
+import {
+  annota,
+  inQuarantena,
+  segnala,
+  traccia,
+  type Identita,
+} from "@/lib/sorveglianza";
 import {
   NOME_COOKIE_SESSIONE,
   verificaTokenSessione,
 } from "@/lib/sessione-token";
 import { eStaff } from "@/lib/permessi";
 import { esaminaUrl } from "@/lib/anomalie";
+import { valutaRichiesta } from "@/lib/insolito";
+import {
+  DURATA_COOKIE_DISPOSITIVO,
+  NOME_COOKIE_DISPOSITIVO,
+  identificativoValido,
+  nuovoIdentificativoDispositivo,
+  valutaEsclusione,
+} from "@/lib/bandi";
 
 /**
  * Runtime Node invece di edge.
@@ -77,28 +91,6 @@ const MAX_RICHIESTE_IP = 300;
 const FINESTRA_IP_MS = 60_000;
 
 /**
- * Valvola di sicurezza della quarantena: lo staff non viene mai chiuso fuori.
- *
- * Senza, la misura è una trappola. Lo sviluppatore lavora spesso dallo
- * stesso indirizzo da cui prova le difese, e il blocco copre tutto il sito
- * — compreso il pannello, che è l'unico posto da cui si può togliere. Ci si
- * chiuderebbe fuori dalla propria stanza lasciando la chiave dentro, con
- * mezz'ora di attesa o un riavvio in produzione come sole vie d'uscita.
- *
- * Il ruolo viene dal token firmato, non dal database: potrebbe essere
- * vecchio di qualche giorno, ma l'errore possibile è al massimo non
- * applicare una quarantena a chi era staff fino a ieri — mentre l'errore
- * opposto è il sito inaccessibile a chi deve ripararlo. I controlli veri
- * sui permessi restano sulle rotte, e rileggono sempre dal database.
- */
-async function eStaffCollegato(richiesta: NextRequest): Promise<boolean> {
-  const sessione = await verificaTokenSessione(
-    richiesta.cookies.get(NOME_COOKIE_SESSIONE)?.value,
-  );
-  return Boolean(sessione && eStaff(sessione.ruolo));
-}
-
-/**
  * Diagnostica al primo passaggio.
  *
  * Il middleware gira nel runtime edge, che riceve le variabili d'ambiente
@@ -125,6 +117,7 @@ export async function middleware(richiesta: NextRequest) {
     );
   }
 
+  const inizio = Date.now();
   const { pathname } = richiesta.nextUrl;
   const ip = ipClient(richiesta.headers);
   const agente = richiesta.headers.get("user-agent");
@@ -138,7 +131,99 @@ export async function middleware(richiesta: NextRequest) {
   // pannello. Si difende con il segreto condiviso.
   const eWebhook = pathname === ROTTA_WEBHOOK;
 
-  if (!eWebhook) traccia(ip, metodo, pathname, agente);
+  /**
+   * Sessione letta una volta sola, e solo se il cookie c'è.
+   *
+   * Serve a tre cose che prima la rileggevano o non la vedevano affatto: la
+   * valvola della quarantena, l'identità nella console e il giudizio sulle
+   * richieste insolite. La verifica è una firma HMAC su un contenuto
+   * minuscolo, ma resta lavoro per richiesta: senza cookie non si fa, e il
+   * traffico anonimo — che è la quasi totalità di quello ostile — non la
+   * paga mai.
+   */
+  const cookieSessione = richiesta.cookies.get(NOME_COOKIE_SESSIONE)?.value;
+  const sessione = cookieSessione
+    ? await verificaTokenSessione(cookieSessione)
+    : null;
+  const identita: Identita = sessione
+    ? {
+        utenteId: sessione.utenteId,
+        telegramId: sessione.telegramId,
+        ruolo: sessione.ruolo,
+      }
+    : null;
+  const staffCollegato = Boolean(sessione && eStaff(sessione.ruolo));
+
+  let nuovoIp = false;
+  if (!eWebhook) {
+    nuovoIp = traccia({ ip, metodo, percorso: pathname, agente, identita })
+      .nuovoIp;
+  }
+
+  /**
+   * Marcatore del dispositivo.
+   *
+   * Il valore arriva da un cookie, quindi da fuori: si accetta solo nella
+   * forma esatta in cui è stato emesso. Senza il controllo, chiunque
+   * potrebbe scriverci dentro quello che vuole — e quel testo finirebbe in
+   * un elenco di esclusione, in una query e in una pagina del pannello.
+   */
+  const cookieDispositivo = richiesta.cookies.get(
+    NOME_COOKIE_DISPOSITIVO,
+  )?.value;
+  const dispositivoNoto = identificativoValido(cookieDispositivo)
+    ? (cookieDispositivo as string)
+    : null;
+  const dispositivo = dispositivoNoto ?? nuovoIdentificativoDispositivo();
+
+  /**
+   * Chiude la riga di console per le richieste che il perimetro lascia
+   * passare. Quelle respinte sono già annotate da `segnala`, con la gravità
+   * della loro famiglia: annotarle anche qui le farebbe comparire due volte
+   * nel registro, una respinta e una passata.
+   */
+  const prosegui = (risposta: NextResponse, esito: string, stato?: number) => {
+    if (eWebhook) return risposta;
+
+    // Il marcatore si deposita solo sulle richieste che passano: darlo
+    // anche a chi viene respinto significherebbe consegnare un
+    // identificativo nuovo a ogni colpo di uno scanner, cioè riempire di
+    // voci inutili proprio l'elenco che serve a riconoscerlo.
+    if (!dispositivoNoto) {
+      risposta.cookies.set(NOME_COOKIE_DISPOSITIVO, dispositivo, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: DURATA_COOKIE_DISPOSITIVO,
+      });
+    }
+
+    const giudizio = valutaRichiesta({
+      metodo,
+      percorso: pathname,
+      agente,
+      nuovoIp,
+      collegato: Boolean(sessione),
+      ruolo: sessione?.ruolo ?? null,
+      azioneServer: richiesta.headers.has("next-action"),
+    });
+
+    annota({
+      livello: giudizio.livello,
+      metodo,
+      percorso: pathname + richiesta.nextUrl.search,
+      ip,
+      agente,
+      identita,
+      esito,
+      stato: stato ?? null,
+      motivi: giudizio.motivi,
+      durataMs: Date.now() - inizio,
+    });
+
+    return risposta;
+  };
 
   // La quarantena viene prima di tutto: se questo indirizzo è già stato
   // giudicato, non deve costare nemmeno il lavoro dei controlli seguenti.
@@ -162,7 +247,7 @@ export async function middleware(richiesta: NextRequest) {
      * inaccessibile a chi deve ripararlo. Ogni controllo vero sui permessi
      * resta dov'era, sulle rotte, e rilegge sempre dal database.
      */
-    if (blocco && !(await eStaffCollegato(richiesta))) {
+    if (blocco && !staffCollegato) {
       segnala({
         tipo: "quarantena",
         ip,
@@ -170,6 +255,9 @@ export async function middleware(richiesta: NextRequest) {
         percorso: pathname,
         agente,
         dettaglio: blocco.motivo,
+        identita,
+        stato: 429,
+        durataMs: Date.now() - inizio,
       });
       return new NextResponse("Accesso temporaneamente sospeso.", {
         status: 429,
@@ -182,9 +270,77 @@ export async function middleware(richiesta: NextRequest) {
     // il resto dei controlli, gate compreso, vale anche per lo staff.
   }
 
+  /* ------------------------------ Esclusioni ---------------------------- */
+
+  /**
+   * Blocchi decisi dallo staff: account, indirizzo, dispositivo.
+   *
+   * Vengono dopo la quarantena (che è automatica e temporanea) e prima di
+   * tutto il resto: sono decisioni prese da una persona, e non ha senso
+   * spendere altro lavoro su una richiesta che comunque non passerà.
+   *
+   * Lo staff scavalca il bando di rete ma non il blocco dell'account. La
+   * differenza è voluta: un IP escluso può essere quello di un ufficio da
+   * cui lavora anche chi deve intervenire, e chiudere fuori l'unica persona
+   * che può revocare il blocco è la stessa trappola della quarantena. Un
+   * account bloccato, invece, è bloccato — se fosse anche staff, il ruolo
+   * non è un salvacondotto, e chi ha deciso il blocco lo ha deciso proprio
+   * per quello.
+   */
+  if (!eWebhook) {
+    const esclusione = valutaEsclusione({
+      ip,
+      dispositivo: dispositivoNoto,
+      utenteId: identita?.utenteId,
+    });
+
+    const applicabile =
+      esclusione.bloccato &&
+      (esclusione.causa === "account" || !staffCollegato);
+
+    if (applicabile) {
+      segnala({
+        tipo: "esclusione",
+        ip,
+        metodo,
+        percorso: pathname,
+        agente,
+        dettaglio: `esclusione attiva: ${esclusione.causa}`,
+        identita,
+        stato: 403,
+        durataMs: Date.now() - inizio,
+      });
+
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ errore: "Accesso revocato." }, {
+          status: 403,
+        });
+      }
+
+      // Come per la pagina di attesa: rewrite e non redirect, così l'URL
+      // resta quello richiesto e la schermata non diventa un indirizzo che
+      // si può girare a qualcun altro.
+      const destinazione = new URL("/bloccato", richiesta.url);
+      destinazione.searchParams.set("causa", esclusione.causa ?? "account");
+      if (richiesta.headers.get("x-forwarded-proto")) {
+        destinazione.protocol = "http:";
+      }
+      return NextResponse.rewrite(destinazione, { status: 403 });
+    }
+  }
+
   // Sondaggi noti: risposta secca, nessun lavoro a valle.
   if (ESCHE.some((esca) => esca.test(pathname))) {
-    segnala({ tipo: "sonda", ip, metodo, percorso: pathname, agente });
+    segnala({
+      tipo: "sonda",
+      ip,
+      metodo,
+      percorso: pathname,
+      agente,
+      identita,
+      stato: 404,
+      durataMs: Date.now() - inizio,
+    });
     return new NextResponse(null, { status: 404 });
   }
 
@@ -206,6 +362,9 @@ export async function middleware(richiesta: NextRequest) {
         percorso: pathname + richiesta.nextUrl.search,
         agente,
         dettaglio: `${anomalia.categoria}: ${anomalia.prova}`,
+        identita,
+        stato: 400,
+        durataMs: Date.now() - inizio,
       });
       return new NextResponse(null, { status: 400 });
     }
@@ -225,6 +384,9 @@ export async function middleware(richiesta: NextRequest) {
         percorso: pathname,
         agente,
         dettaglio: `oltre ${MAX_RICHIESTE_IP} richieste al minuto`,
+        identita,
+        stato: 429,
+        durataMs: Date.now() - inizio,
       });
       return new NextResponse("Troppe richieste.", {
         status: 429,
@@ -251,6 +413,9 @@ export async function middleware(richiesta: NextRequest) {
       dettaglio: richiesta.headers.get("origin")
         ? `Origin: ${richiesta.headers.get("origin")}`
         : "nessun Origin (richiesta fuori dal browser)",
+      identita,
+      stato: 403,
+      durataMs: Date.now() - inizio,
     });
     return NextResponse.json(
       { errore: "Origine della richiesta non valida." },
@@ -267,23 +432,27 @@ export async function middleware(richiesta: NextRequest) {
   if (!chiuso) {
     const risposta = NextResponse.next();
     risposta.headers.set("x-gate", "aperto");
-    return risposta;
+    return prosegui(risposta, "passata");
   }
 
   if (PERCORSI_LIBERI.some((percorso) => pathname.startsWith(percorso))) {
-    return NextResponse.next();
+    return prosegui(NextResponse.next(), "passata");
   }
 
   const sbloccato = await verificaTokenGate(
     richiesta.cookies.get(NOME_COOKIE_GATE)?.value,
   );
-  if (sbloccato) return NextResponse.next();
+  if (sbloccato) return prosegui(NextResponse.next(), "passata");
 
   // Le API rispondono 503 invece di servire l'HTML della pagina di attesa.
   if (pathname.startsWith("/api/")) {
-    return NextResponse.json(
-      { errore: "Servizio momentaneamente non disponibile." },
-      { status: 503 },
+    return prosegui(
+      NextResponse.json(
+        { errore: "Servizio momentaneamente non disponibile." },
+        { status: 503 },
+      ),
+      "cantiere",
+      503,
     );
   }
 
@@ -305,7 +474,7 @@ export async function middleware(richiesta: NextRequest) {
   }
   const risposta = NextResponse.rewrite(destinazione);
   risposta.headers.set("x-gate", "chiuso");
-  return risposta;
+  return prosegui(risposta, "cantiere");
 }
 
 export const config = {

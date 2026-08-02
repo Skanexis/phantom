@@ -103,6 +103,52 @@ async function leggiCarico(): Promise<Carico> {
   }
 }
 
+/**
+ * Nomi leggibili degli account comparsi nel registro.
+ *
+ * Il perimetro conosce solo l'identificativo interno e quello di Telegram:
+ * non può interrogare il database a ogni richiesta solo per scrivere
+ * "@mario" invece di un cuid. La traduzione si fa qui, una volta ogni
+ * aggiornamento del pannello e su una manciata di righe — e resta in cache,
+ * perché fra un giro e l'altro gli account visti sono quasi sempre gli
+ * stessi.
+ */
+const VALIDITA_NOMI_MS = 60_000;
+
+let nomiInCache: { nomi: Record<string, string>; scadenza: number } | null =
+  null;
+
+async function leggiNomi(ids: string[]): Promise<Record<string, string>> {
+  const adesso = Date.now();
+  const noti =
+    nomiInCache && nomiInCache.scadenza > adesso ? nomiInCache.nomi : {};
+  const mancanti = ids.filter((id) => !(id in noti));
+
+  if (mancanti.length === 0) return noti;
+
+  try {
+    const utenti = await prisma.utente.findMany({
+      where: { id: { in: mancanti } },
+      select: { id: true, username: true, nome: true, telegramId: true },
+    });
+
+    const nomi = { ...noti };
+    for (const utente of utenti) {
+      nomi[utente.id] = utente.username
+        ? `@${utente.username}`
+        : (utente.nome ?? utente.telegramId);
+    }
+    // Gli id senza corrispondenza (account cancellato) vanno marcati lo
+    // stesso: senza, ogni giro riproverebbe a cercarli per sempre.
+    for (const id of mancanti) nomi[id] ??= "—";
+
+    nomiInCache = { nomi, scadenza: adesso + VALIDITA_NOMI_MS };
+    return nomi;
+  } catch {
+    return noti;
+  }
+}
+
 export async function GET() {
   const sviluppatore = await richiediSviluppatore();
   if (!sviluppatore) {
@@ -112,9 +158,17 @@ export async function GET() {
   }
 
   const memoria = process.memoryUsage();
+  const quadro = istantanea();
+
+  const ids = new Set<string>();
+  for (const riga of quadro.registro) {
+    if (riga.utenteId) ids.add(riga.utenteId);
+  }
+  for (const utente of quadro.utenti) ids.add(utente.utenteId);
 
   return NextResponse.json({
-    ...istantanea(),
+    ...quadro,
+    nomi: await leggiNomi([...ids]),
     flussi: statoFlussi(),
     carico: await leggiCarico(),
     processo: {

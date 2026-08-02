@@ -82,12 +82,88 @@ model Utente {
   creatoIl       DateTime @default(now())
   aggiornatoIl   DateTime @updatedAt
 
+  /// Blocco dell'account, deciso da ADMIN o DEVELOPER. Separato dal ruolo:
+  /// un account bloccato conserva il suo ruolo e lo ritrova allo sblocco,
+  /// mentre degradarlo a UTENTE perderebbe l'informazione per sempre.
+  bloccato     Boolean   @default(false)
+  bloccatoIl   DateTime?
+  motivoBlocco String?
+  /// Chi ha deciso il blocco. Nessuna relazione: se quell'account viene
+  /// cancellato la traccia deve restare comunque leggibile.
+  bloccatoDaId String?
+
   richieste            Richiesta[]
   abbonamentiUtente    AbbonamentoUtente[]
   notifiche            Notifica[]
   tokenCollegamento    TokenCollegamento[]
+  segnalazioniRicevute Segnalazione[]      @relation("SegnalazioniRicevute")
+  segnalazioniFatte    Segnalazione[]      @relation("SegnalazioniFatte")
 
   @@index([ruolo])
+  @@index([bloccato])
+}
+
+enum StatoSegnalazione {
+  APERTA
+  PRESA_IN_CARICO
+  CHIUSA
+}
+
+/// Segnalazione di un account da parte dello staff.
+///
+/// Esiste perché SUPPORTO vede i clienti tutto il giorno ma non ha — e non
+/// deve avere — il potere di bloccarli: senza un canale formale l'unica
+/// strada sarebbe un messaggio privato a un admin, che non lascia traccia e
+/// si perde. Qui la richiesta è una riga con un autore, uno stato e una
+/// data, e l'admin la trova nel pannello invece che in una chat.
+model Segnalazione {
+  id       String            @id @default(cuid())
+  utenteId String
+  autoreId String
+  motivo   String
+  stato    StatoSegnalazione @default(APERTA)
+  /// Nota di chi l'ha chiusa: perché sì o perché no.
+  esito    String?
+  creatoIl DateTime          @default(now())
+  chiusoIl DateTime?
+
+  utente Utente @relation("SegnalazioniRicevute", fields: [utenteId], references: [id], onDelete: Cascade)
+  autore Utente @relation("SegnalazioniFatte", fields: [autoreId], references: [id], onDelete: Cascade)
+
+  @@index([stato, creatoIl])
+  @@index([utenteId])
+}
+
+enum TipoBando {
+  IP
+  DISPOSITIVO
+}
+
+/// Esclusione a livello di rete, riservata a DEVELOPER.
+///
+/// Il blocco dell'account ferma una persona che ha un account; questo ferma
+/// chi non ce l'ha, o chi se ne crea un altro. Sono due strumenti diversi e
+/// vanno tenuti separati: il primo è una decisione sul cliente, il secondo
+/// una decisione sul perimetro.
+///
+/// Sul tipo DISPOSITIVO vale una precisazione onesta, scritta qui perché è
+/// il posto in cui verrà letta: non è un'impronta dell'hardware. Un sito web
+/// non può vedere il numero di serie di una macchina. È un identificativo
+/// casuale che il server deposita nel browser e ritrova alle visite
+/// successive: regge il cambio di rete e di indirizzo IP, non regge la
+/// navigazione in incognito né la cancellazione dei dati del sito.
+model Bando {
+  id       String    @id @default(cuid())
+  tipo     TipoBando
+  valore   String
+  motivo   String
+  creatoIl DateTime  @default(now())
+  /// Null significa permanente.
+  scadeIl  DateTime?
+  autoreId String?
+
+  @@unique([tipo, valore])
+  @@index([tipo])
 }
 
 /// Piani di abbonamento, interamente editabili dal pannello admin.
