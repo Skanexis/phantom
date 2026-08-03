@@ -51,7 +51,7 @@ for indirizzo in "${INDIRIZZI[@]}"; do
 done
 
 # --- 1. Memoria disponibile ------------------------------------------------
-echo "==> [1/7] Controllo la memoria"
+echo "==> [1/8] Controllo la memoria"
 
 LIBERA_MB="$(free -m | awk '/^Mem:/{print $7}')"
 if [ -n "$LIBERA_MB" ] && [ "$LIBERA_MB" -lt 250 ]; then
@@ -64,8 +64,15 @@ else
   echo "    ${LIBERA_MB:-?} MB disponibili."
 fi
 
-# --- 2. Pacchetti ----------------------------------------------------------
-echo "==> [2/7] Installo agente e bouncer"
+# --- 2. Agente -------------------------------------------------------------
+#
+# L'agente PRIMA del bouncer, e in mezzo la lista bianca. L'ordine non è
+# estetico: l'agente da solo osserva e decide, ma non blocca niente — a
+# bloccare è il bouncer. Installandoli insieme si aprirebbe una finestra,
+# breve ma reale, in cui il firewall applica decisioni prese senza che la
+# lista bianca esista ancora. È esattamente il modo in cui ci si chiude
+# fuori dal proprio server.
+echo "==> [2/8] Installo l'agente"
 
 if ! command -v cscli > /dev/null 2>&1; then
   curl -s https://install.crowdsec.net | bash
@@ -74,51 +81,10 @@ else
   echo "    Agente già presente."
 fi
 
-# Il bouncer nftables e non quello per Nginx: qui l'obiettivo è che il
-# pacchetto non arrivi nemmeno al proxy. Convive con ufw, che su Ubuntu usa
-# lo stesso backend nft ma una tabella propria.
-if ! dpkg -s crowdsec-firewall-bouncer-nftables > /dev/null 2>&1; then
-  apt install -y crowdsec-firewall-bouncer-nftables
-else
-  echo "    Bouncer già presente."
-fi
+# --- 3. Lista bianca, prima che qualcosa possa bloccare -------------------
+echo "==> [3/8] Scrivo la lista bianca"
 
-# --- 3. Collezioni ---------------------------------------------------------
-echo "==> [3/7] Installo le collezioni"
-
-for collezione in \
-  crowdsecurity/nginx \
-  crowdsecurity/base-http-scenarios \
-  crowdsecurity/http-cve \
-  crowdsecurity/whitelists; do
-  if cscli collections list -o json | grep -q "\"$collezione\""; then
-    echo "    $collezione già installata."
-  else
-    cscli collections install "$collezione"
-  fi
-done
-
-# --- 4. Da quali log leggere ----------------------------------------------
-echo "==> [4/7] Configuro la lettura dei log"
-
-# I nostri log e non quelli generici di Nginx: il sito ne ha di propri (vedi
-# access_log in deploy/nginx.conf), e puntare CrowdSec altrove significa
-# leggere un file che resta vuoto — un'installazione che sembra funzionare e
-# non vede niente.
-cat > /etc/crowdsec/acquis.d/phantomlab.yaml <<'YAML'
-filenames:
-  - /var/log/nginx/phantomlab.access.log
-  - /var/log/nginx/phantomlab.error.log
-  # Il webhook ha un log suo: le consegne di Telegram arrivano a raffica
-  # quando il bot recupera un arretrato, ed è esattamente la forma che uno
-  # scenario di frequenza scambierebbe per un attacco.
-labels:
-  type: nginx
-YAML
-echo "    /etc/crowdsec/acquis.d/phantomlab.yaml"
-
-# --- 5. Lista bianca -------------------------------------------------------
-echo "==> [5/7] Scrivo la lista bianca"
+mkdir -p /etc/crowdsec/parsers/s02-enrich
 
 {
   echo "name: phantomlab/lista-bianca"
@@ -145,8 +111,70 @@ echo "==> [5/7] Scrivo la lista bianca"
 
 echo "    Protetti: ${INDIRIZZI[*]} (più loopback)"
 
-# --- 6. Chiave per il pannello --------------------------------------------
-echo "==> [6/7] Registro il lettore per il pannello"
+# --- 4. Bouncer ------------------------------------------------------------
+echo "==> [4/8] Installo il bouncer"
+
+# Il bouncer nftables e non quello per Nginx: qui l'obiettivo è che il
+# pacchetto non arrivi nemmeno al proxy. Convive con ufw, che su Ubuntu usa
+# lo stesso backend nft ma una tabella propria.
+if ! dpkg -s crowdsec-firewall-bouncer-nftables > /dev/null 2>&1; then
+  apt install -y crowdsec-firewall-bouncer-nftables
+else
+  echo "    Bouncer già presente."
+fi
+
+# --- 5. Collezioni e parser ------------------------------------------------
+echo "==> [5/8] Installo collezioni e parser"
+
+# Collezioni e parser sono due categorie diverse dell'hub, e vanno chieste
+# con il comando giusto: `crowdsecurity/whitelists` è un parser, e chiederlo
+# come collezione fa fallire il comando.
+#
+# Un elemento mancante non ferma lo script. L'hub è un servizio esterno che
+# cambia nel tempo — un elemento rinominato o ritirato è normale — e con
+# `set -e` un singolo `cscli install` fallito lascerebbe l'installazione a
+# metà: servizi avviati, ma senza le regole di lettura dei log. Meglio un
+# avviso e un'installazione completa che un'uscita pulita a metà strada.
+installa_hub() {
+  local tipo="$1" nome="$2"
+  if cscli "$tipo" inspect "$nome" > /dev/null 2>&1; then
+    echo "    $nome già presente."
+  elif cscli "$tipo" install "$nome" > /dev/null 2>&1; then
+    echo "    $nome installato."
+  else
+    echo "    ATTENZIONE: $nome non disponibile nell'hub, lo salto." >&2
+  fi
+}
+
+installa_hub collections crowdsecurity/nginx
+installa_hub collections crowdsecurity/base-http-scenarios
+installa_hub collections crowdsecurity/http-cve
+
+# Le liste bianche predefinite dell'hub: reti private, bot dei motori di
+# ricerca. La nostra, scritta sopra, vale comunque a prescindere da questa.
+installa_hub parsers crowdsecurity/whitelists
+
+# --- 6. Da quali log leggere ----------------------------------------------
+echo "==> [6/8] Configuro la lettura dei log"
+
+# I nostri log e non quelli generici di Nginx: il sito ne ha di propri (vedi
+# access_log in deploy/nginx.conf), e puntare CrowdSec altrove significa
+# leggere un file che resta vuoto — un'installazione che sembra funzionare e
+# non vede niente.
+cat > /etc/crowdsec/acquis.d/phantomlab.yaml <<'YAML'
+filenames:
+  - /var/log/nginx/phantomlab.access.log
+  - /var/log/nginx/phantomlab.error.log
+  # Il webhook ha un log suo: le consegne di Telegram arrivano a raffica
+  # quando il bot recupera un arretrato, ed è esattamente la forma che uno
+  # scenario di frequenza scambierebbe per un attacco.
+labels:
+  type: nginx
+YAML
+echo "    /etc/crowdsec/acquis.d/phantomlab.yaml"
+
+# --- 7. Chiave per il pannello --------------------------------------------
+echo "==> [7/8] Registro il lettore per il pannello"
 
 # Il pannello dell'applicazione legge le decisioni per mostrarle e per
 # avvisare su Telegram: senza, i blocchi sarebbero invisibili ovunque tranne
@@ -161,11 +189,30 @@ else
   CHIAVE="$(cscli bouncers add phantomlab-pannello -o raw)"
 fi
 
-# --- 7. Avvio --------------------------------------------------------------
-echo "==> [7/7] Riavvio i servizi"
+# --- 8. Avvio --------------------------------------------------------------
+echo "==> [8/8] Riavvio i servizi"
 
+# L'agente per primo: deve aver già letto la lista bianca quando il bouncer
+# comincia ad applicare le decisioni.
 systemctl enable --now crowdsec
 systemctl restart crowdsec
+sleep 2
+
+# Verifica che la lista bianca sia stata caricata davvero. Un errore di
+# sintassi nel file la renderebbe inerte, e l'agente partirebbe lo stesso:
+# ce ne accorgeremmo solo restando chiusi fuori.
+if ! cscli parsers inspect phantomlab/lista-bianca > /dev/null 2>&1; then
+  echo "ATTENZIONE: la lista bianca non risulta caricata." >&2
+  echo "Controlla /etc/crowdsec/parsers/s02-enrich/phantomlab-whitelist.yaml" >&2
+  echo "e i log: sudo journalctl -u crowdsec -n 40 --no-pager" >&2
+  echo >&2
+  read -r -p "Avvio comunque il bouncer? [s/N] " risposta
+  [ "$risposta" = "s" ] || {
+    echo "Bouncer non avviato: nulla viene bloccato. Correggi e rilancia." >&2
+    exit 1
+  }
+fi
+
 systemctl enable --now crowdsec-firewall-bouncer
 systemctl restart crowdsec-firewall-bouncer
 
