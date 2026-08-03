@@ -86,11 +86,17 @@ echo "==> [3/8] Scrivo la lista bianca"
 
 mkdir -p /etc/crowdsec/parsers/s02-enrich
 
+# Le virgolette attorno a description e reason non sono uno stile: in YAML
+# uno scalare non quotato che contiene "due punti + spazio" viene letto come
+# l'inizio di una mappa, e il file diventa illeggibile. Il guaio è che il
+# danno non resta locale — un parser rotto in questa cartella fa fallire
+# OGNI comando cscli e il test di configurazione all'avvio del servizio, con
+# messaggi che parlano dell'hub e non del file appena scritto.
 {
   echo "name: phantomlab/lista-bianca"
-  echo "description: Indirizzi che non vanno mai bloccati: chi amministra il server."
+  echo "description: \"Indirizzi che non vanno mai bloccati: chi amministra il server\""
   echo "whitelist:"
-  echo "  reason: amministrazione phantom-lab.eu"
+  echo "  reason: \"amministrazione phantom-lab.eu\""
   echo "  ip:"
   for indirizzo in "${INDIRIZZI[@]}"; do
     case "$indirizzo" in
@@ -110,6 +116,26 @@ mkdir -p /etc/crowdsec/parsers/s02-enrich
 } > /etc/crowdsec/parsers/s02-enrich/phantomlab-whitelist.yaml
 
 echo "    Protetti: ${INDIRIZZI[*]} (più loopback)"
+
+# Verifica subito, non fra cinque passi.
+#
+# Un file malformato qui dentro non dà un errore locale: rende illeggibile
+# l'intera configurazione, quindi ogni `cscli` successivo fallisce
+# lamentandosi dell'hub, e il servizio non parte per un test che nomina
+# config.yaml. Si finisce a cercare il guasto ovunque tranne che nel file
+# appena scritto. Controllarlo adesso costa un secondo e indica il colpevole.
+if ! crowdsec -c /etc/crowdsec/config.yaml -t > /tmp/crowdsec-test.log 2>&1; then
+  echo "ERRORE: la configurazione non è valida dopo la scrittura della" >&2
+  echo "lista bianca. Quasi certamente il problema è in:" >&2
+  echo "  /etc/crowdsec/parsers/s02-enrich/phantomlab-whitelist.yaml" >&2
+  echo >&2
+  sed -n '1,15p' /tmp/crowdsec-test.log >&2
+  echo >&2
+  echo "Rimuovi quel file e rilancia:" >&2
+  echo "  sudo rm /etc/crowdsec/parsers/s02-enrich/phantomlab-whitelist.yaml" >&2
+  exit 1
+fi
+echo "    Configurazione valida."
 
 # --- 4. Bouncer ------------------------------------------------------------
 echo "==> [4/8] Installo il bouncer"
@@ -135,6 +161,11 @@ echo "==> [5/8] Installo collezioni e parser"
 # `set -e` un singolo `cscli install` fallito lascerebbe l'installazione a
 # metà: servizi avviati, ma senza le regole di lettura dei log. Meglio un
 # avviso e un'installazione completa che un'uscita pulita a metà strada.
+# L'indice dell'hub va aggiornato prima di chiedergli qualcosa: su
+# un'installazione vecchia di qualche settimana `install` fallisce su
+# elementi che esistono benissimo.
+cscli hub update > /dev/null 2>&1 || echo "    (indice hub non aggiornato)" >&2
+
 installa_hub() {
   local tipo="$1" nome="$2"
   if cscli "$tipo" inspect "$nome" > /dev/null 2>&1; then
