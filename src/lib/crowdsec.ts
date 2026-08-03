@@ -102,6 +102,33 @@ function normalizza(riga: RigaApi, adesso: number): DecisioneCrowdSec | null {
  * Non solleva mai: la chiama un timer di sistema, dove un'eccezione
  * diventa un rifiuto non gestito e in Node può abbattere il processo.
  */
+/**
+ * Racconta nel log solo i cambi di stato, non ogni giro.
+ *
+ * Serviva: finché l'esito viveva soltanto in `ultimoErrore`, l'unico modo
+ * di sapere perché il pannello dicesse "non collegato" era aprire il
+ * pannello — cioè proprio la cosa che non funzionava. Un motivo leggibile
+ * con `pm2 logs` cambia la diagnosi da indovinello a lettura.
+ *
+ * Solo le transizioni, però: un errore ripetuto ogni venti secondi
+ * riempirebbe il log di righe identiche e seppellirebbe tutto il resto.
+ */
+function annota(dep: Deposito, collegato: boolean, motivo?: string) {
+  if (dep.collegato === collegato) {
+    dep.ultimoErrore = collegato ? null : (motivo ?? dep.ultimoErrore);
+    return;
+  }
+
+  dep.collegato = collegato;
+  dep.ultimoErrore = collegato ? null : (motivo ?? null);
+
+  if (collegato) {
+    console.log("[crowdsec] collegato all'API locale.");
+  } else {
+    console.error(`[crowdsec] non raggiungibile: ${motivo ?? "motivo ignoto"}`);
+  }
+}
+
 export async function leggiDecisioni(): Promise<number | null> {
   const chiave = process.env.CROWDSEC_API_KEY;
   if (!chiave) return null;
@@ -130,8 +157,13 @@ export async function leggiDecisioni(): Promise<number | null> {
     );
 
     if (!risposta.ok) {
-      dep.ultimoErrore = `API CrowdSec: HTTP ${risposta.status}`;
-      dep.collegato = false;
+      // 403 significa quasi sempre chiave sbagliata o cancellata: dirlo
+      // esplicitamente evita di cercare il guasto nella rete.
+      const spiegazione =
+        risposta.status === 403
+          ? "HTTP 403: chiave rifiutata. Rigenerala con `cscli bouncers delete phantomlab-pannello` e `cscli bouncers add phantomlab-pannello -o raw`, poi rimettila nel .env."
+          : `HTTP ${risposta.status}`;
+      annota(dep, false, spiegazione);
       return null;
     }
 
@@ -176,9 +208,8 @@ export async function leggiDecisioni(): Promise<number | null> {
     }
 
     dep.decisioni = aggiornate;
-    dep.collegato = true;
-    dep.ultimoErrore = null;
     dep.ultimaLettura = adesso;
+    annota(dep, true);
 
     for (const voce of nuoveLocali.slice(0, 10)) {
       accodaAllerta({
@@ -198,9 +229,24 @@ export async function leggiDecisioni(): Promise<number | null> {
   } catch (eccezione) {
     // Servizio spento, non installato, o troppo lento: nessuno dei tre è
     // un guasto dell'applicazione.
-    dep.ultimoErrore =
-      eccezione instanceof Error ? eccezione.message.slice(0, 120) : "errore";
-    dep.collegato = false;
+    //
+    // `cause` va guardata e non solo `message`: fetch avvolge gli errori di
+    // rete in un generico "fetch failed", e il motivo vero — ECONNREFUSED,
+    // EHOSTUNREACH — sta un livello sotto. Senza, il pannello direbbe
+    // "fetch failed" e non si saprebbe se il servizio è spento o se
+    // l'indirizzo è sbagliato.
+    const errore = eccezione as { message?: string; cause?: { code?: string } };
+    const codice = errore?.cause?.code;
+    const motivo = [
+      errore?.message ?? "errore",
+      codice ? `(${codice})` : "",
+      codice === "ECONNREFUSED" ? `— nessuno ascolta su ${API}` : "",
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .slice(0, 160);
+
+    annota(dep, false, motivo);
     return null;
   }
 }
