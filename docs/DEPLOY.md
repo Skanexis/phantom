@@ -431,7 +431,28 @@ chmod 600 .env
 
 PM2 **non** legge il `.env` da solo. Il file `ecosystem.config.js` lo carica esplicitamente all'avvio e si rifiuta di partire se mancano `DATABASE_URL`, `AUTH_SECRET` o `TELEGRAM_BOT_TOKEN`.
 
-> Conseguenza pratica: dopo ogni modifica al `.env` serve `pm2 reload phantomlab --update-env`. Un semplice `restart` conserva le vecchie variabili.
+Da qui discende la trappola più costosa di tutta questa guida, ed è controintuitiva:
+
+```bash
+# NON basta: non rilegge ecosystem.config.js, quindi non rilegge il .env
+pm2 reload phantomlab --update-env
+
+# Questo sì:
+cd /var/www/phantomlab
+pm2 delete phantomlab && pm2 start ecosystem.config.js && pm2 save
+```
+
+`--update-env` aggiorna l'ambiente **dalla shell in cui lanci il comando**, non dal file di configurazione. Ma il `.env` lo legge `ecosystem.config.js`, e PM2 quel file lo rilegge solo se glielo si passa. Il risultato è il peggiore possibile: il comando riesce, PM2 dice `✓`, il processo riparte — e continua con le variabili di prima. Si finisce a cercare il guasto ovunque tranne che nel comando che sembrava aver funzionato.
+
+Lo stesso vale per `restart`. Se hai dubbi su quale variabile sia davvero arrivata al processo:
+
+```bash
+pm2 env 0 | grep NOME_VARIABILE
+```
+
+È l'unica risposta autorevole: legge l'ambiente del processo vivo, non il file.
+
+> `deploy/aggiorna.sh` fa già `delete` + `start ecosystem.config.js`, quindi dopo un aggiornamento normale il `.env` è sempre riletto.
 
 ---
 
@@ -639,7 +660,7 @@ Il cookie di sblocco dura **30 giorni** e vale solo per quel browser. L'URL nell
 ```bash
 cd /var/www/phantomlab
 nano .env          # imposta SITO_CHIUSO="false"
-pm2 reload phantomlab --update-env
+pm2 delete phantomlab && pm2 start ecosystem.config.js && pm2 save
 ```
 
 > `--update-env` è indispensabile: senza, PM2 riavvia il processo mantenendo le vecchie variabili.
@@ -665,12 +686,28 @@ Se preferisci procedere a mano:
 
 ```bash
 cd /var/www/phantomlab
-sudo git pull
+git pull --ff-only            # MAI con sudo: vedi la nota qui sotto
 npm ci
 npx prisma migrate deploy
 bash deploy/build.sh          # NON solo `npm run build`
-pm2 reload phantomlab --update-env
+pm2 delete phantomlab && pm2 start ecosystem.config.js && pm2 save
 ```
+
+> **Nessun comando di questa sequenza va eseguito con `sudo`, e vale anche per `pm2`.** Un `sudo git pull` scrive i file aggiornati come `root`: il `npm ci` successivo non riesce più a rimuovere `node_modules` e si ferma con `EACCES: permission denied, rmdir`, lasciando le dipendenze a metà. Un `pm2` lanciato da root è peggio ancora, perché non fallisce: avvia un secondo demone PM2 tutto suo, l'applicazione gira come `root` e lascia file di root dentro `.next` e nei log — e il prossimo aggiornamento fatto correttamente si schianta sull'`EACCES`.
+>
+> Se è già successo, rimetti tutto a posto dall'utente dell'applicazione:
+>
+> ```bash
+> # se l'app gira sotto il PM2 di root
+> sudo pm2 delete phantomlab; sudo pm2 save --force; sudo pm2 kill
+>
+> # poi, come utente phantom
+> cd /var/www/phantomlab
+> sudo chown -R "$(whoami):$(whoami)" .
+> pm2 delete phantomlab 2>/dev/null || true
+> sudo pkill -9 -f "standalone/server.js" || true
+> pm2 start ecosystem.config.js && pm2 save
+> ```
 
 ### Aggiornamento con i codici brevi e la messaggistica
 
@@ -885,7 +922,7 @@ Il processo sta girando con variabili vecchie o senza `.env`:
 ```bash
 cd /var/www/phantomlab
 grep SITO_CHIUSO .env               # deve dire "true"
-pm2 reload phantomlab --update-env  # NON un semplice restart
+pm2 delete phantomlab && pm2 start ecosystem.config.js && pm2 save
 ```
 
 Verifica che il middleware sia attivo:
@@ -1007,7 +1044,7 @@ Un altro sito sul server definisce già la stessa map:
 
 ```bash
 sudo rm /etc/nginx/conf.d/upgrade-map.conf
-sudo nginx -t && sudo systemctl reload nginx
+sudo nginx -t && sudo systemctl reload nginx\
 ```
 </details>
 
@@ -1073,7 +1110,7 @@ sudo systemctl reload nginx
 ### Le modifiche al `.env` non hanno effetto
 
 ```bash
-pm2 reload phantomlab --update-env
+pm2 delete phantomlab && pm2 start ecosystem.config.js && pm2 save
 ```
 
 ### Ho dimenticato la password del sito
@@ -1091,7 +1128,7 @@ cd /var/www/phantomlab
 npm run promuovi-admin -- IL_TELEGRAM_ID
 ```
 
-Altrimenti aggiungi il suo ID a `ADMIN_TELEGRAM_IDS` nel `.env` **prima** del suo primo accesso, poi `pm2 reload phantomlab --update-env`.
+Altrimenti aggiungi il suo ID a `ADMIN_TELEGRAM_IDS` nel `.env` **prima** del suo primo accesso, poi `pm2 delete phantomlab && pm2 start ecosystem.config.js && pm2 save`.
 
 ---
 
@@ -1113,7 +1150,7 @@ Alla fine lo script stampa una chiave. Va nel `.env`:
 
 ```bash
 nano .env          # CROWDSEC_API_KEY="..."
-pm2 reload phantomlab --update-env
+pm2 delete phantomlab && pm2 start ecosystem.config.js && pm2 save
 ```
 
 Serve solo a far vedere le decisioni nel pannello e a farle arrivare su Telegram. Senza, CrowdSec blocca lo stesso — semplicemente i suoi provvedimenti si vedono solo con `cscli decisions list`, perché il pacchetto muore nel firewall e non lascia traccia da nessun'altra parte.
@@ -1165,8 +1202,8 @@ sudo systemctl stop crowdsec-firewall-bouncer   # toglie tutti i blocchi
 | Setup database | `sudo bash deploy/setup-db.sh` |
 | Stato applicazione | `pm2 status` |
 | Log in tempo reale | `pm2 logs phantomlab` |
-| Riavvio dopo modifica `.env` | `pm2 reload phantomlab --update-env` |
+| Riavvio dopo modifica `.env` | `pm2 delete phantomlab && pm2 start ecosystem.config.js && pm2 save` |
 | Backup manuale | `bash deploy/backup.sh` |
 | Ricarica Nginx | `sudo nginx -t && sudo systemctl reload nginx` |
 | Log Nginx | `sudo tail -f /var/log/nginx/phantomlab.error.log` |
-| Apri il sito al pubblico | `SITO_CHIUSO="false"` + `pm2 reload phantomlab --update-env` |
+| Apri il sito al pubblico | `SITO_CHIUSO="false"` + `pm2 delete phantomlab && pm2 start ecosystem.config.js && pm2 save` |

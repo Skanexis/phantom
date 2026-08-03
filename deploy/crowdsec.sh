@@ -204,24 +204,8 @@ labels:
 YAML
 echo "    /etc/crowdsec/acquis.d/phantomlab.yaml"
 
-# --- 7. Chiave per il pannello --------------------------------------------
-echo "==> [7/8] Registro il lettore per il pannello"
-
-# Il pannello dell'applicazione legge le decisioni per mostrarle e per
-# avvisare su Telegram: senza, i blocchi sarebbero invisibili ovunque tranne
-# che da riga di comando — il pacchetto muore nel kernel e non lascia
-# traccia né nei log di Nginx né nell'archivio.
-if cscli bouncers list -o json | grep -q '"phantomlab-pannello"'; then
-  echo "    Lettore già registrato."
-  echo "    Se hai perso la chiave: cscli bouncers delete phantomlab-pannello"
-  echo "    e rilancia questo script."
-  CHIAVE=""
-else
-  CHIAVE="$(cscli bouncers add phantomlab-pannello -o raw)"
-fi
-
-# --- 8. Avvio --------------------------------------------------------------
-echo "==> [8/8] Riavvio i servizi"
+# --- 7. Avvio --------------------------------------------------------------
+echo "==> [7/8] Riavvio i servizi"
 
 # L'agente per primo: deve aver già letto la lista bianca quando il bouncer
 # comincia ad applicare le decisioni.
@@ -255,23 +239,105 @@ if ! systemctl is-active --quiet crowdsec; then
   exit 1
 fi
 
-if ! systemctl is-active --quiet crowdsec-firewall-bouncer; then
-  echo "ERRORE: il bouncer non è partito." >&2
-  echo "  sudo journalctl -u crowdsec-firewall-bouncer -n 40 --no-pager" >&2
-  exit 1
+# --- 8. Chiave per il pannello, verificata contro l'API viva ---------------
+echo "==> [8/8] Chiave di lettura per il pannello"
+
+# Il pannello dell'applicazione legge le decisioni per mostrarle e per
+# avvisare su Telegram: senza, i blocchi sarebbero invisibili ovunque tranne
+# che da riga di comando — il pacchetto muore nel kernel e non lascia
+# traccia né nei log di Nginx né nell'archivio.
+#
+# Questo passo sta in fondo, e non prima dell'avvio, per un motivo preciso:
+# una chiave si può registrare in qualunque momento, ma **verificarla** si
+# può solo con l'API in piedi. E la verifica è tutto il punto di questo
+# blocco.
+#
+# Il difetto della versione precedente: quando il lettore esisteva già, lo
+# script si limitava a dire "già registrato" senza stampare nulla. Ma la
+# chiave si vede una volta sola, alla creazione — quindi rilanciare lo
+# script lasciava nel .env una chiave vecchia e nell'agente una diversa, con
+# l'API che rispondeva 403 e il pannello che diceva "non collegato" senza
+# spiegare perché. Adesso la chiave del .env viene provata davvero, e
+# rigenerata solo se non funziona.
+
+CARTELLA_APP="${CARTELLA_APP:-/var/www/phantomlab}"
+FILE_ENV="$CARTELLA_APP/.env"
+
+chiave_valida() {
+  local chiave="$1"
+  [ -n "$chiave" ] || return 1
+  local codice
+  codice="$(curl -s -o /dev/null -w '%{http_code}' -m 5 \
+    -H "X-Api-Key: $chiave" \
+    'http://127.0.0.1:8080/v1/decisions/stream?startup=true' || echo 000)"
+  [ "$codice" = "200" ]
+}
+
+CHIAVE_ATTUALE=""
+if [ -f "$FILE_ENV" ]; then
+  CHIAVE_ATTUALE="$(sed -n 's/^CROWDSEC_API_KEY=//p' "$FILE_ENV" |
+    tail -1 | tr -d '"'"'"' \r')"
+fi
+
+if chiave_valida "$CHIAVE_ATTUALE"; then
+  echo "    La chiave già presente nel .env funziona: non tocco niente."
+  CHIAVE=""
+else
+  if [ -n "$CHIAVE_ATTUALE" ]; then
+    echo "    La chiave nel .env non è più accettata: ne genero una nuova."
+  fi
+
+  cscli bouncers delete phantomlab-pannello > /dev/null 2>&1 || true
+  CHIAVE="$(cscli bouncers add phantomlab-pannello -o raw)"
+
+  if ! chiave_valida "$CHIAVE"; then
+    echo "ERRORE: la chiave appena creata non viene accettata dall'API." >&2
+    echo "  sudo systemctl status crowdsec" >&2
+    echo "  sudo cscli bouncers list" >&2
+    exit 1
+  fi
+
+  # Scritta direttamente nel .env: farla copiare a mano è il passaggio in
+  # cui si perde, ed è esattamente come si è arrivati al 403.
+  if [ -f "$FILE_ENV" ]; then
+    if grep -q '^CROWDSEC_API_KEY=' "$FILE_ENV"; then
+      sed -i "s|^CROWDSEC_API_KEY=.*|CROWDSEC_API_KEY=\"$CHIAVE\"|" "$FILE_ENV"
+    else
+      printf '\nCROWDSEC_API_KEY="%s"\n' "$CHIAVE" >> "$FILE_ENV"
+    fi
+    echo "    Chiave verificata e scritta in $FILE_ENV"
+    RIAVVIO_APP=1
+  else
+    echo "    ATTENZIONE: $FILE_ENV non trovato, la chiave va messa a mano." >&2
+    RIAVVIO_APP=0
+  fi
 fi
 
 echo
 echo "============================================================"
 echo " CrowdSec attivo."
 echo
-if [ -n "$CHIAVE" ]; then
-  echo " Aggiungi questa riga al .env dell'applicazione e riavviala:"
+if [ -n "$CHIAVE" ] && [ "${RIAVVIO_APP:-0}" = "1" ]; then
+  echo " La chiave è già nel .env, verificata contro l'API."
+  echo " Manca solo far ripartire l'applicazione, DAL SUO UTENTE:"
+  echo
+  echo "   cd $CARTELLA_APP"
+  echo "   pm2 delete phantomlab && pm2 start ecosystem.config.js && pm2 save"
+  echo
+  # Non "pm2 reload --update-env": quel comando aggiorna l'ambiente dalla
+  # shell corrente e NON rilegge ecosystem.config.js, che è il file che
+  # carica il .env. Una modifica al .env non arriva al processo, e la si
+  # insegue per mezz'ora. Serve delete + start.
+  echo " (delete + start, non 'reload --update-env': quest'ultimo non"
+  echo "  rilegge ecosystem.config.js, quindi il .env non arriverebbe.)"
+  echo
+elif [ -n "$CHIAVE" ]; then
+  echo " Metti questa riga nel .env dell'applicazione:"
   echo
   echo "   CROWDSEC_API_KEY=\"$CHIAVE\""
   echo
-  echo "   cd /var/www/phantomlab && nano .env"
-  echo "   pm2 reload phantomlab --update-env"
+  echo " poi, dall'utente dell'applicazione:"
+  echo "   pm2 delete phantomlab && pm2 start ecosystem.config.js && pm2 save"
   echo
 fi
 echo " Verifiche:"
