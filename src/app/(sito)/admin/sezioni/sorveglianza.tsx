@@ -67,6 +67,8 @@ type Dati = Istantanea & {
   nomi: Record<string, string>;
   /** ip → esito della risoluzione inversa, per il marcatore VPN. */
   rete: Record<string, SchedaRete>;
+  /** Indirizzi in coda per il DNS inverso: il verdetto arriva fra un giro. */
+  reteInAttesa: number;
   elenchi: {
     ip: number;
     sottoreti: number;
@@ -79,6 +81,20 @@ type Dati = Istantanea & {
     bandi: Provvedimento[];
     eccezioni: Eccezione[];
     ricorsiAperti: number;
+  };
+  crowdsec: {
+    attivo: boolean;
+    collegato: boolean;
+    ultimoErrore: string | null;
+    ultimaLettura: number;
+    totale: number;
+    decisioni: {
+      valore: string;
+      tipo: string;
+      scenario: string;
+      origine: string;
+      durata: string;
+    }[];
   };
   flussi: { connessioni: number; soggetti: number; massimoSingolo: number };
   carico: {
@@ -801,6 +817,81 @@ export function SezioneSorveglianza() {
         )}
       </Sezione>
 
+      {/* ----------------------------- CrowdSec ---------------------------- */}
+      {dati.crowdsec.attivo && (
+        <Sezione
+          icona="shield"
+          titolo={`CrowdSec (${cifra(dati.crowdsec.totale)} decisioni)`}
+          nota={
+            dati.crowdsec.collegato
+              ? "blocco nel firewall: questo traffico non arriva né a Nginx né qui"
+              : (dati.crowdsec.ultimoErrore ?? "non raggiungibile")
+          }
+          accento={!dati.crowdsec.collegato}
+        >
+          {!dati.crowdsec.collegato ? (
+            <p className="mono text-[11.5px] leading-[1.7] text-[var(--allarme)]">
+              L&apos;agente non risponde. Il sito funziona lo stesso — CrowdSec
+              è uno strumento in più, non una dipendenza — ma finché resta
+              così nessuno sta filtrando a monte.{" "}
+              <span className="text-[var(--testo-debole)]">
+                systemctl status crowdsec
+              </span>
+            </p>
+          ) : dati.crowdsec.decisioni.length === 0 ? (
+            <p className="mono text-[12px] text-[var(--testo-tenue)]">
+              Nessuna decisione in vigore.
+            </p>
+          ) : (
+            <>
+              <div className="divide-y divide-[var(--bordo)]">
+                {dati.crowdsec.decisioni.map((voce) => {
+                  const condiviso =
+                    voce.origine === "CAPI" || voce.origine === "lists";
+                  return (
+                    <div
+                      key={`${voce.valore}-${voce.scenario}`}
+                      className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2 first:pt-0 last:pb-0"
+                    >
+                      <span className="mono flex min-w-0 flex-wrap items-center gap-2 text-[12px]">
+                        <span
+                          title={
+                            condiviso
+                              ? "Segnalato da altri: elenco condiviso"
+                              : "Deciso qui, sul traffico di questo sito"
+                          }
+                          className={`shrink-0 border px-1 text-[9px] tracking-[0.06em] uppercase ${
+                            condiviso
+                              ? "border-[var(--bordo)] text-[var(--testo-debole)]"
+                              : "border-[var(--allarme)] text-[var(--allarme)]"
+                          }`}
+                        >
+                          {condiviso ? "rete" : "qui"}
+                        </span>
+                        <span className="break-all">{voce.valore}</span>
+                      </span>
+                      <span className="mono text-[10.5px] break-words text-[var(--testo-tenue)]">
+                        {voce.scenario} · {voce.durata}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mono mt-3 text-[10.5px] leading-[1.6] text-[var(--testo-debole)]">
+                Le voci marcate «qui» sono state decise su questo sito; quelle
+                marcate «rete» arrivano dall&apos;elenco condiviso, cioè da
+                indirizzi già segnalati altrove. Solo le prime generano un
+                avviso su Telegram: le seconde sono decine di migliaia e
+                renderebbero il canale illeggibile. L&apos;elenco completo:{" "}
+                <span className="text-[var(--testo-tenue)]">
+                  cscli decisions list
+                </span>
+              </p>
+            </>
+          )}
+        </Sezione>
+      )}
+
       {/* ----------------------------- Account ----------------------------- */}
       <Sezione
         icona="utenti"
@@ -1014,6 +1105,14 @@ export function SezioneSorveglianza() {
             {cifra(dati.percorsiTracciati)} percorsi. Ogni struttura ha un
             tetto e scarta le voci più vecchie: la memoria non cresce con il
             traffico.
+            {dati.reteInAttesa > 0 && (
+              <>
+                {" "}
+                {cifra(dati.reteInAttesa)} indirizzi attendono il nome
+                inverso: il marcatore VPN compare fra un giro o due, la
+                risoluzione non blocca questa pagina.
+              </>
+            )}
           </p>
         </Sezione>
 

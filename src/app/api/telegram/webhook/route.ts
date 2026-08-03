@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { inviaMessaggio } from "@/lib/telegram-bot";
 import { confermaToken } from "@/lib/collegamento";
-import { segnala } from "@/lib/sorveglianza";
+import { segnala, segnaWebhookVivo } from "@/lib/sorveglianza";
 import { ipClient } from "@/lib/rete";
 import { escapeHtml } from "@/lib/notifiche";
 import {
@@ -79,6 +79,19 @@ export async function POST(richiesta: Request) {
     });
     return NextResponse.json({ errore: "Non autorizzato." }, { status: 401 });
   }
+
+  /**
+   * Segno di vita, subito dopo la verifica del segreto e prima di
+   * qualunque altra cosa.
+   *
+   * Qui e non più in basso: un aggiornamento che Telegram consegna
+   * correttamente ma che noi ignoriamo — un messaggio senza testo, il tipo
+   * di evento che non gestiamo — è comunque la prova che il canale
+   * funziona, ed è quello che la sentinella deve sapere. Se lo segnassimo
+   * solo per gli aggiornamenti che ci interessano, un bot che riceve solo
+   * foto risulterebbe guasto.
+   */
+  segnaWebhookVivo();
 
   const aggiornamento = (await richiesta
     .json()

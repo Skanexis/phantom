@@ -283,6 +283,11 @@ model RegistroRichiesta {
   @@index([utenteId, quando])
   @@index([sottorete, quando])
   @@index([percorso, quando])
+  /// Alimenta la scheda DEV.LOGS, che isola l'attività di chi ha un ruolo.
+  /// Senza, il filtro per ruolo su un archivio annuale è una scansione: le
+  /// righe dello staff sono una frazione minima del totale, quindi
+  /// esattamente il caso in cui un indice cambia tutto.
+  @@index([ruolo, quando])
 }
 
 /// Piani di abbonamento, interamente editabili dal pannello admin.

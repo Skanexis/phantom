@@ -111,6 +111,16 @@ fi
 # --- 5. Configurazione definitiva -----------------------------------------
 echo "==> [5/5] Applico la configurazione definitiva"
 
+# Cartella della cache della homepage. Nginx la creerebbe da sé all'avvio,
+# ma solo se il percorso padre esiste ed è scrivibile: crearla qui rende il
+# fallimento impossibile invece che improbabile, e permette di assegnarla
+# subito all'utente dei worker.
+UTENTE_NGINX="$(awk '/^ *user /{print $2}' /etc/nginx/nginx.conf | tr -d ';' | head -1)"
+UTENTE_NGINX="${UTENTE_NGINX:-www-data}"
+mkdir -p /var/cache/nginx/phantomlab
+chown -R "$UTENTE_NGINX":"$UTENTE_NGINX" /var/cache/nginx/phantomlab
+echo "    Cache in /var/cache/nginx/phantomlab (utente $UTENTE_NGINX)"
+
 cp "$CARTELLA/deploy/nginx.conf" "$DISPONIBILI"
 ln -sf "$DISPONIBILI" "$ATTIVI"
 

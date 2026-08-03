@@ -61,6 +61,7 @@ Gli script si fermano al primo problema e spiegano cosa correggere. Il resto del
 14. [Reinstallazione pulita](#14-reinstallazione-pulita)
 15. [Backup](#15-backup)
 16. [Risoluzione problemi](#16-risoluzione-problemi)
+17. [CrowdSec](#17-crowdsec)
 
 ---
 
@@ -143,6 +144,8 @@ sudo ufw status
 sudo apt install -y fail2ban
 sudo systemctl enable --now fail2ban
 ```
+
+Questo protegge SSH. Per il traffico web c'è **CrowdSec**, che si installa dopo Nginx: vedi la sezione 17.
 
 ---
 
@@ -662,7 +665,7 @@ Se preferisci procedere a mano:
 
 ```bash
 cd /var/www/phantomlab
-sudogit pull
+sudo git pull
 npm ci
 npx prisma migrate deploy
 bash deploy/build.sh          # NON solo `npm run build`
@@ -1024,6 +1027,25 @@ sudo nginx -t
 
 Il DNS deve essere propagato **prima** di eseguire Certbot.
 
+### Il bot non risponde più — controlla PRIMA il filtro di rete
+
+Da quando il webhook accetta solo gli intervalli di Telegram (`deploy/nginx.conf`, blocco `location = /api/telegram/webhook`), esiste un guasto nuovo e silenzioso: se Telegram comincia a consegnare da un intervallo che non è in elenco, Nginx respinge tutto con 403 e **l'applicazione non se ne accorge**, perché non le arriva nulla. Nei log dell'app non c'è niente da cercare: il posto giusto è il log del webhook.
+
+```bash
+sudo grep ' 403 ' /var/log/nginx/phantomlab.webhook.log | tail -20
+```
+
+Se compaiono righe recenti, il filtro sta bloccando consegne vere. Rimedio immediato — commenta le tre righe `allow`/`deny` nel blocco del webhook e ricarica:
+
+```bash
+sudo nano /etc/nginx/sites-available/phantom-lab.eu
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Poi aggiorna gli intervalli in `deploy/nginx.conf` con quelli pubblicati da Telegram e riapplica la configurazione.
+
+> L'applicazione ha una sentinella per questo caso: se non riceve alcun aggiornamento valido per più di sei ore, manda un avviso su Telegram ai DEVELOPER. Non copre però il caso in cui *anche* quel canale sia rotto, quindi il controllo qui sopra resta il primo da fare.
+
 ### Il bot non invia notifiche
 
 ```bash
@@ -1032,6 +1054,21 @@ curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"
 ```
 
 Controlla `last_error_message`. Cause frequenti: `TELEGRAM_WEBHOOK_SECRET` diverso da quello registrato, o certificato HTTPS non valido.
+
+### La homepage mostra ancora il testo vecchio
+
+La homepage è servita da una copia in cache di Nginx, valida un minuto (`location = /` in `deploy/nginx.conf`). Una modifica fatta dal pannello compare quindi entro sessanta secondi, non subito. Per verificare che la cache stia funzionando:
+
+```bash
+curl -s -D- -o /dev/null https://phantom-lab.eu/ | grep -i x-cache
+```
+
+`MISS` alla prima richiesta, `HIT` alle successive, `BYPASS` se sei collegato. Per svuotarla a mano:
+
+```bash
+sudo rm -rf /var/cache/nginx/phantomlab/*
+sudo systemctl reload nginx
+```
 
 ### Le modifiche al `.env` non hanno effetto
 
@@ -1058,12 +1095,69 @@ Altrimenti aggiungi il suo ID a `ADMIN_TELEGRAM_IDS` nel `.env` **prima** del su
 
 ---
 
+## 17. CrowdSec
+
+Il perimetro dell'applicazione riconosce chi abusa, ma per farlo deve prima ricevere la richiesta: uno scanner che insiste costa un passaggio completo dentro Node a ogni colpo, anche quando il verdetto è già «no». CrowdSec legge i log di Nginx, decide, e fa cadere il pacchetto nel kernel — dal secondo colpo in poi quel traffico non costa più nulla. In più porta un elenco condiviso: gli indirizzi già segnalati da altri vengono bloccati prima ancora di provarci qui.
+
+Va installato **dopo** Nginx, perché legge i suoi log.
+
+```bash
+curl -s https://ifconfig.me          # il tuo indirizzo, serve al comando dopo
+cd /var/www/phantomlab
+sudo bash deploy/crowdsec.sh 203.0.113.7
+```
+
+> Lo script **si rifiuta di partire senza un indirizzo in lista bianca**, e non è una formalità. CrowdSec blocca nel firewall: un errore di configurazione, o un tuo test un po' insistente, ti chiuderebbero fuori dal server senza modo di rientrare se non dalla console del provider. È la stessa trappola da cui difendono la valvola della quarantena e lo scavalco dello staff sui bandi di rete.
+
+Alla fine lo script stampa una chiave. Va nel `.env`:
+
+```bash
+nano .env          # CROWDSEC_API_KEY="..."
+pm2 reload phantomlab --update-env
+```
+
+Serve solo a far vedere le decisioni nel pannello e a farle arrivare su Telegram. Senza, CrowdSec blocca lo stesso — semplicemente i suoi provvedimenti si vedono solo con `cscli decisions list`, perché il pacchetto muore nel firewall e non lascia traccia da nessun'altra parte.
+
+### Cosa cambia nel pannello
+
+Una conseguenza da mettere in conto: **il traffico bloccato da CrowdSec sparisce dalla scheda Sorveglianza e dall'archivio Logs.** Non è un guasto, è il punto — quel pacchetto non arriva né a Nginx né all'applicazione. Il pannello diventerà più tranquillo di prima, e la sezione «CrowdSec» è il posto dove quel traffico ricompare.
+
+Nella sezione, le decisioni sono marcate:
+
+- **qui** — decise su questo sito, sul traffico che è arrivato davvero. Sono le uniche che generano un avviso su Telegram.
+- **rete** — arrivano dall'elenco condiviso, cioè indirizzi già segnalati altrove. Sono decine di migliaia e non producono avvisi: annunciarle renderebbe il canale illeggibile.
+
+### Verifiche
+
+```bash
+cscli metrics            # sta leggendo i nostri log?
+cscli decisions list     # chi è bloccato adesso
+cscli alerts list        # cosa ha visto
+cscli capi status        # elenco condiviso collegato
+```
+
+Se `cscli metrics` mostra zero righe lette, controlla che i percorsi in `/etc/crowdsec/acquis.d/phantomlab.yaml` corrispondano agli `access_log` di `deploy/nginx.conf`.
+
+### Se ti sei chiuso fuori
+
+Dalla console del provider:
+
+```bash
+sudo cscli decisions delete --ip 203.0.113.7
+sudo systemctl stop crowdsec-firewall-bouncer   # toglie tutti i blocchi
+```
+
+---
+
 ## Riferimento rapido
 
 | Operazione | Comando |
 | --- | --- |
 | Installazione completa | `bash deploy/installa.sh` |
 | Nginx + HTTPS | `sudo bash deploy/configura-nginx.sh` |
+| CrowdSec | `sudo bash deploy/crowdsec.sh <IL_TUO_IP>` |
+| Chi è bloccato dal firewall | `cscli decisions list` |
+| Svuotare la cache della homepage | `sudo rm -rf /var/cache/nginx/phantomlab/* && sudo systemctl reload nginx` |
 | Aggiornamento | `bash deploy/aggiorna.sh` |
 | Ricompilare gli asset | `bash deploy/build.sh && pm2 restart phantomlab` |
 | Reinstallazione pulita | `sudo bash deploy/pulisci.sh` |

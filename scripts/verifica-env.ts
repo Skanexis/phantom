@@ -74,6 +74,34 @@ if (produzione && process.env.ALLOW_DEV_LOGIN === "true") {
   );
 }
 
+/**
+ * Segmento di DEV.LOGS: avviso e non errore.
+ *
+ * Senza, la scheda semplicemente non compare e la rotta risponde 404 — il
+ * sito funziona in tutto il resto. Un errore bloccante qui impedirebbe il
+ * deploy per una funzione accessoria, il che sarebbe sproporzionato; ma
+ * tacere del tutto lascerebbe qualcuno a chiedersi perché la scheda non
+ * c'è, che è il tipo di mistero che costa un'ora.
+ */
+const segmentoDevLogs = process.env.SEGMENTO_DEV_LOGS;
+if (!segmentoDevLogs) {
+  avviso(
+    "SEGMENTO_DEV_LOGS non impostato: la scheda DEV.LOGS resterà nascosta. " +
+      "Generane uno con: openssl rand -hex 16",
+  );
+} else if (segmentoDevLogs.length < 16) {
+  errore(
+    `SEGMENTO_DEV_LOGS troppo corto (${segmentoDevLogs.length} caratteri, ` +
+      "minimo 16). Sotto quella soglia la rotta risponde 404 e la scheda " +
+      "non compare: meglio saperlo adesso che cercarlo dopo.",
+  );
+} else if (!/^[0-9a-zA-Z_-]+$/.test(segmentoDevLogs)) {
+  errore(
+    "SEGMENTO_DEV_LOGS contiene caratteri che vanno codificati in un URL. " +
+      "Usa solo lettere, cifre, trattino e trattino basso: openssl rand -hex 16",
+  );
+}
+
 /* -------------------------------- Telegram ------------------------------ */
 
 const tokenBot = process.env.TELEGRAM_BOT_TOKEN;

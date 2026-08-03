@@ -92,20 +92,36 @@ type Pagina = {
 
 /** Legge una pagina. Non tocca nessuno stato: lo scrive chi la chiama. */
 async function leggiPagina(
+  percorsoApi: string,
   filtri: Filtri,
   cursore: number | null,
 ): Promise<Pagina> {
   const parametri = componiQuery(filtri);
   if (cursore) parametri.set("cursore", String(cursore));
 
-  const risposta = await fetch(`/api/admin/registro?${parametri}`, {
+  const risposta = await fetch(`${percorsoApi}?${parametri}`, {
     cache: "no-store",
   });
   if (!risposta.ok) throw new Error(String(risposta.status));
   return risposta.json();
 }
 
-export function SezioneRegistro() {
+export function SezioneRegistro({
+  percorsoApi = "/api/admin/registro",
+  titolo = "Archivio delle richieste",
+  nota = "conservate 365 giorni · scritte a lotti, non a ogni richiesta",
+  vuoto = "Nessuna richiesta nell'archivio con questi filtri.",
+}: {
+  /**
+   * Da dove leggere. DEV.LOGS usa la stessa interfaccia su una rotta
+   * diversa, che impone il filtro sul ruolo dal lato server: il componente
+   * non sa e non deve sapere quale sottoinsieme sta guardando.
+   */
+  percorsoApi?: string;
+  titolo?: string;
+  nota?: string;
+  vuoto?: string;
+} = {}) {
   const [filtri, setFiltri] = useState<Filtri>(FILTRI_INIZIALI);
   const [righe, setRighe] = useState<RigaRegistro[]>([]);
   const [cursore, setCursore] = useState<number | null>(null);
@@ -136,7 +152,7 @@ export function SezioneRegistro() {
 
     void (async () => {
       try {
-        const corpo = await leggiPagina(filtri, null);
+        const corpo = await leggiPagina(percorsoApi, filtri, null);
         if (!vivo) return;
         setErrore(null);
         setRighe(corpo.righe);
@@ -152,14 +168,14 @@ export function SezioneRegistro() {
     return () => {
       vivo = false;
     };
-  }, [filtri]);
+  }, [filtri, percorsoApi]);
 
   /** Pagina successiva: allunga l'elenco invece di sostituirlo. */
   const caricaAltre = async () => {
     if (!cursore || caricando) return;
     setCaricando(true);
     try {
-      const corpo = await leggiPagina(filtri, cursore);
+      const corpo = await leggiPagina(percorsoApi, filtri, cursore);
       setErrore(null);
       setRighe((precedenti) => [...precedenti, ...corpo.righe]);
       setCursore(corpo.prossimoCursore ?? null);
@@ -183,7 +199,10 @@ export function SezioneRegistro() {
   const scarica = () => {
     const parametri = componiQuery(filtri);
     parametri.set("formato", "csv");
-    window.location.href = `/api/admin/registro?${parametri}`;
+    // Stessa rotta dell'elenco: se questa fosse fissa, l'esportazione da
+    // DEV.LOGS scaricherebbe in silenzio l'archivio intero invece del
+    // sottoinsieme che si sta guardando.
+    window.location.href = `${percorsoApi}?${parametri}`;
   };
 
   return (
@@ -192,10 +211,10 @@ export function SezioneRegistro() {
         <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-b border-[var(--bordo)] px-3 py-3 sm:px-4">
           <div className="flex min-w-0 items-center gap-2.5">
             <Icone.registro className="h-4 w-4 shrink-0 text-[var(--accento)]" />
-            <Etichetta>Archivio delle richieste</Etichetta>
+            <Etichetta>{titolo}</Etichetta>
           </div>
           <span className="mono min-w-0 text-[10.5px] break-words text-[var(--testo-debole)]">
-            conservate 365 giorni · scritte a lotti, non a ogni richiesta
+            {nota}
           </span>
         </header>
 
@@ -367,10 +386,9 @@ export function SezioneRegistro() {
       )}
 
       {righe.length === 0 && !caricando && !errore ? (
-        <p className="mono border border-[var(--bordo)] p-4 text-[12px] text-[var(--testo-tenue)]">
-          Nessuna richiesta nell&apos;archivio con questi filtri. Se il sito è
-          appena stato riavviato, le prime righe compaiono entro venti
-          secondi: la scrittura è a lotti.
+        <p className="mono border border-[var(--bordo)] p-4 text-[12px] leading-[1.7] text-[var(--testo-tenue)]">
+          {vuoto} Se il sito è appena stato riavviato, le prime righe
+          compaiono entro venti secondi: la scrittura è a lotti.
         </p>
       ) : (
         <div className="border border-[var(--bordo)]">

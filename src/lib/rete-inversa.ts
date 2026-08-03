@@ -44,15 +44,26 @@ const VALIDITA_MS = 6 * 60 * 60 * 1000;
 const MAX_CACHE = 3000;
 
 /**
- * Quanti indirizzi nuovi risolvere per ogni apertura del pannello.
+ * Quanti indirizzi nuovi risolvere per ogni giro del compito periodico.
  *
  * Un tetto e non "tutti quelli che mancano": sotto una raffica da mille
- * sorgenti, la prima apertura del pannello lancerebbe mille risoluzioni
- * insieme — il monitoraggio che diventa esso stesso un carico, proprio nel
- * momento peggiore. A dodici per giro, cinque secondi l'uno, gli indirizzi
- * che contano si popolano in una manciata di aggiornamenti.
+ * sorgenti, si lancerebbero mille risoluzioni insieme — il monitoraggio che
+ * diventa esso stesso un carico, proprio nel momento peggiore. A dodici per
+ * giro gli indirizzi che contano si popolano in una manciata di giri.
  */
 const NUOVI_PER_GIRO = 12;
+
+/**
+ * Indirizzi in attesa di essere risolti.
+ *
+ * Il tetto vale come per ogni altra struttura del progetto: la coda la
+ * riempie chi bussa, quindi senza un limite sarebbe il solito modo di far
+ * crescere la memoria da fuori. Quando è piena si smette di accodare — non
+ * si scarta la testa: le richieste più vecchie in coda sono anche le più
+ * vicine a essere risolte, e buttarle significherebbe non risolvere mai
+ * nessuno sotto una raffica.
+ */
+const MAX_CODA = 500;
 
 /** Oltre questo tempo la risoluzione si abbandona: il pannello non aspetta. */
 const TIMEOUT_MS = 1200;
@@ -69,11 +80,11 @@ const NOMI_HOSTING =
 const LOCALI =
   /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|::1$|fe80:|fc00:|fd)/i;
 
-type Deposito = { cache: Map<string, Voce> };
+type Deposito = { cache: Map<string, Voce>; coda: Set<string> };
 
 function deposito(): Deposito {
   const globale = globalThis as unknown as { __reteInversa?: Deposito };
-  globale.__reteInversa ??= { cache: new Map() };
+  globale.__reteInversa ??= { cache: new Map(), coda: new Set() };
   return globale.__reteInversa;
 }
 
@@ -113,19 +124,27 @@ async function risolvi(ip: string): Promise<SchedaRete> {
 }
 
 /**
- * Classifica gli indirizzi indicati, usando la cache dove possibile.
+ * Classifica gli indirizzi indicati leggendo **solo** la cache, e accoda i
+ * mancanti per il compito periodico.
  *
- * Restituisce solo ciò che è già noto più i pochi risolti in questo giro:
- * gli altri compaiono senza verdetto, e il pannello li mostra come tali.
+ * Prima questa funzione risolveva sul posto, dentro la richiesta del
+ * pannello: fino a dodici risoluzioni DNS in parallelo con un secondo e due
+ * di timeout ciascuna, cioè fino a un secondo e due di attesa aggiunti alla
+ * risposta. E siccome il pannello si aggiorna ogni cinque secondi, sotto un
+ * attacco con indirizzi sempre nuovi ogni giro ne lanciava dodici nuove:
+ * guardare l'attacco costava traffico DNS proporzionale all'attacco stesso.
+ *
+ * Adesso non aspetta nulla. Gli indirizzi non ancora noti compaiono senza
+ * verdetto per un giro o due e poi si popolano da soli — per un marcatore
+ * che dice "probabile VPN" è più che sufficiente, e la risposta del
+ * pannello non dipende più da un server DNS.
  */
-export async function classificaIndirizzi(
+export function leggiClassificazioni(
   indirizzi: string[],
-): Promise<Record<string, SchedaRete>> {
-  const { cache } = deposito();
+): Record<string, SchedaRete> {
+  const { cache, coda } = deposito();
   const adesso = Date.now();
   const esito: Record<string, SchedaRete> = {};
-
-  const daRisolvere: string[] = [];
 
   for (const ip of new Set(indirizzi)) {
     const voce = cache.get(ip);
@@ -133,19 +152,53 @@ export async function classificaIndirizzi(
       esito[ip] = { ptr: voce.ptr, hosting: voce.hosting, locale: voce.locale };
       continue;
     }
-    if (daRisolvere.length < NUOVI_PER_GIRO) daRisolvere.push(ip);
+    // Un Set: lo stesso indirizzo chiesto da venti righe si accoda una
+    // volta sola, e l'ordine di inserimento — che è quello di importanza,
+    // deciso dal chiamante — viene conservato.
+    if (coda.size < MAX_CODA) coda.add(ip);
   }
 
-  const risolti = await Promise.all(
-    daRisolvere.map(async (ip) => [ip, await risolvi(ip)] as const),
-  );
+  return esito;
+}
 
-  for (const [ip, scheda] of risolti) {
-    cache.set(ip, { ...scheda, scadenza: adesso + VALIDITA_MS });
-    esito[ip] = scheda;
+/**
+ * Risolve un lotto di indirizzi in coda. La chiama il compito periodico di
+ * `src/instrumentation.ts`, mai una richiesta.
+ *
+ * Non solleva mai: gira dentro un timer di sistema, dove un'eccezione
+ * diventa un rifiuto non gestito e in Node può abbattere il processo.
+ */
+export async function risolviInCoda(): Promise<number> {
+  const { cache, coda } = deposito();
+  if (coda.size === 0) return 0;
+
+  const lotto: string[] = [];
+  for (const ip of coda) {
+    if (lotto.length >= NUOVI_PER_GIRO) break;
+    lotto.push(ip);
+  }
+  for (const ip of lotto) coda.delete(ip);
+
+  const adesso = Date.now();
+
+  try {
+    const risolti = await Promise.all(
+      lotto.map(async (ip) => [ip, await risolvi(ip)] as const),
+    );
+    for (const [ip, scheda] of risolti) {
+      cache.set(ip, { ...scheda, scadenza: adesso + VALIDITA_MS });
+    }
+  } catch (eccezione) {
+    // `risolvi` cattura già per conto suo: qui si arriva solo per un
+    // guasto imprevisto, e va detto senza fermare il giro.
+    console.error("[rete-inversa] risoluzione fallita:", eccezione);
   }
 
   pota(cache);
+  return lotto.length;
+}
 
-  return esito;
+/** Quanti indirizzi aspettano un verdetto: lo dichiara il pannello. */
+export function inAttesaDiRisoluzione(): number {
+  return deposito().coda.size;
 }

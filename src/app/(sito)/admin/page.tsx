@@ -95,6 +95,21 @@ export default async function PannelloAdmin() {
   // user-agent dei visitatori, che non servono a chi risponde ai clienti.
   const eventiSicurezza = gestisceContenuti ? contaEventiRecenti() : 0;
 
+  /**
+   * Segmento della rotta di DEV.LOGS.
+   *
+   * Letto qui, dove la pagina è già riservata a chi ha il ruolo, e passato
+   * al componente client. Finisce quindi nel payload della pagina — ma
+   * quella pagina la riceve solo chi è DEVELOPER, e contro un DEVELOPER il
+   * segmento non deve proteggere nulla: a proteggere è il controllo del
+   * ruolo dentro la rotta. Vedi il commento in testa a
+   * api/admin/[segmento]/dev-logs/route.ts.
+   */
+  const segmentoDevLogs =
+    gestisceContenuti && (process.env.SEGMENTO_DEV_LOGS?.length ?? 0) >= 16
+      ? process.env.SEGMENTO_DEV_LOGS
+      : null;
+
   const [
     abbonamenti,
     richieste,
@@ -459,6 +474,12 @@ export default async function PannelloAdmin() {
                     id: "logs",
                     etichetta: "Logs",
                   },
+                  // Solo se il segmento è configurato: una scheda che apre
+                  // una rotta inesistente mostrerebbe un errore di lettura
+                  // e lascerebbe indovinare il motivo.
+                  ...(segmentoDevLogs
+                    ? [{ id: "dev-logs", etichetta: "DEV.LOGS" }]
+                    : []),
                   {
                     id: "ricorsi",
                     etichetta: "Ricorsi",
@@ -579,6 +600,18 @@ export default async function PannelloAdmin() {
               ? {
                   sorveglianza: <SezioneSorveglianza />,
                   logs: <SezioneRegistro />,
+                  ...(segmentoDevLogs
+                    ? {
+                        "dev-logs": (
+                          <SezioneRegistro
+                            percorsoApi={`/api/admin/${segmentoDevLogs}/dev-logs`}
+                            titolo="Attività dello staff"
+                            nota="solo le richieste fatte da chi ha un ruolo · stesso archivio, altro sottoinsieme"
+                            vuoto="Nessuna attività dello staff con questi filtri."
+                          />
+                        ),
+                      }
+                    : {}),
                   ricorsi: (
                     <SezioneRicorsi
                       // Le date attraversano il confine server/client: si

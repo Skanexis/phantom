@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { richiediSviluppatore } from "@/lib/sessione";
 import { istantanea } from "@/lib/sorveglianza";
 import { statoFlussi } from "@/lib/limite";
-import { classificaIndirizzi } from "@/lib/rete-inversa";
+import {
+  inAttesaDiRisoluzione,
+  leggiClassificazioni,
+} from "@/lib/rete-inversa";
 import { statoElenchi } from "@/lib/bandi";
+import { statoCrowdSec } from "@/lib/crowdsec";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -255,9 +259,15 @@ export async function GET() {
   return NextResponse.json({
     ...quadro,
     nomi: await leggiNomi([...ids]),
-    rete: await classificaIndirizzi(daClassificare),
+    // Lettura di sola cache: gli indirizzi mancanti si accodano e li
+    // risolve il compito periodico. Vedi `leggiClassificazioni`.
+    rete: leggiClassificazioni(daClassificare),
+    reteInAttesa: inAttesaDiRisoluzione(),
     elenchi: statoElenchi(),
     provvedimenti: await leggiProvvedimenti(),
+    // Lettura di memoria: l'interrogazione a CrowdSec la fa il compito
+    // periodico, non questa richiesta.
+    crowdsec: statoCrowdSec(),
     flussi: statoFlussi(),
     carico: await leggiCarico(),
     processo: {

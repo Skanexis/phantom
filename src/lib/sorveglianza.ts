@@ -259,6 +259,17 @@ type Deposito = {
   minuti: Map<number, Minuto>;
   quarantena: Map<string, Quarantena>;
   totali: Totali;
+  /**
+   * Ultimo aggiornamento accettato dal webhook di Telegram.
+   *
+   * Serve a una sentinella, non a una statistica: il webhook è l'unica
+   * parte del sistema che può smettere di funzionare senza produrre
+   * nemmeno un errore, perché il guasto consiste proprio nel non ricevere
+   * più niente. Un filtro di rete troppo stretto davanti alla rotta, una
+   * registrazione persa su Telegram, un certificato che scade: in tutti e
+   * tre i casi l'applicazione resta perfettamente sana e il bot muto.
+   */
+  ultimoWebhook: number;
   /** Righe in attesa di finire nell'archivio a database. */
   coda: RigaRegistro[];
   /** Righe scartate perché la coda era piena: si dichiara, non si nasconde. */
@@ -363,6 +374,7 @@ function deposito(): Deposito {
       perMetodo: {},
       perLivello: { info: 0, avviso: 0, allarme: 0, critico: 0 },
     },
+    ultimoWebhook: 0,
     coda: [],
     codaPersa: 0,
     allerte: [],
@@ -740,6 +752,43 @@ export function rimettiInCoda(righe: RigaRegistro[]) {
 export function statoCoda() {
   const dep = deposito();
   return { inCoda: dep.coda.length, perse: dep.codaPersa };
+}
+
+/* ------------------------- Sentinella del webhook ------------------------- */
+
+/**
+ * Registra che il webhook ha appena consegnato un aggiornamento valido.
+ * Va chiamata dopo la verifica del segreto, non prima: un colpo respinto
+ * non è un segno di vita, è il contrario.
+ */
+export function segnaWebhookVivo() {
+  deposito().ultimoWebhook = Date.now();
+}
+
+/**
+ * Silenzio oltre il quale il webhook si considera guasto.
+ *
+ * Sei ore sono scelte sul comportamento reale: un bot con pochi utenti può
+ * benissimo passare una notte senza un solo messaggio, quindi una soglia
+ * corta produrrebbe un falso allarme a settimana e insegnerebbe a ignorare
+ * l'avviso — che è il modo in cui una sentinella smette di servire.
+ */
+const SILENZIO_WEBHOOK_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Il webhook tace da troppo?
+ *
+ * Il confronto non parte da zero ma dall'avvio del processo: appena
+ * riavviato non è ancora arrivato nulla, e senza questa accortezza ogni
+ * riavvio genererebbe un allarme immediato per un guasto inesistente.
+ */
+function webhookMuto(dep: Deposito, adesso: number): number | null {
+  // Senza bot configurato non c'è nulla da sorvegliare.
+  if (!process.env.TELEGRAM_BOT_TOKEN) return null;
+
+  const riferimento = dep.ultimoWebhook || dep.avvio;
+  const silenzio = adesso - riferimento;
+  return silenzio > SILENZIO_WEBHOOK_MS ? silenzio : null;
 }
 
 /* -------------------------------- Avvisi --------------------------------- */
@@ -1379,6 +1428,32 @@ export function vigila() {
   for (const [indirizzo, voce] of dep.quarantena) {
     if (voce.fino > adesso) attive += 1;
     else dep.quarantena.delete(indirizzo);
+  }
+
+  /**
+   * Sentinella del webhook, prima della valutazione del traffico.
+   *
+   * Sta qui e non altrove perché questo è l'unico giro che parte da solo,
+   * senza che nessuno guardi: un guasto che consiste nel non ricevere più
+   * niente non può essere scoperto da qualcosa che si attiva ricevendo.
+   */
+  const silenzio = webhookMuto(dep, adesso);
+  if (silenzio !== null) {
+    const ore = Math.floor(silenzio / (60 * 60 * 1000));
+    accodaAllerta({
+      gravita: "alta",
+      titolo: "Il webhook di Telegram tace",
+      righe: [
+        `nessun aggiornamento accettato da ${ore} ore`,
+        "controlla in quest'ordine: il filtro sugli intervalli in nginx",
+        "(grep ' 403 ' /var/log/nginx/phantomlab.webhook.log),",
+        "poi la registrazione con getWebhookInfo, poi il certificato.",
+      ],
+      chiave: "webhook:muto",
+      // Lungo: se è davvero rotto lo resta finché qualcuno interviene, e
+      // un avviso ogni ora non aggiunge nulla al primo.
+      raffreddamentoMinuti: 6 * 60,
+    });
   }
 
   const minaccia = valutaMinaccia({
