@@ -141,6 +141,8 @@ type Deposito = {
   collegato: boolean;
   ultimoErrore: string | null;
   ultimaLettura: number;
+  /** Quante decisioni gia scadute ha restituito lultima lettura. */
+  scadutePerse: number;
   /** Serve a non riannunciare su Telegram ciò che è già stato annunciato. */
   annunciate: Set<string>;
 };
@@ -152,6 +154,7 @@ function deposito(): Deposito {
     collegato: false,
     ultimoErrore: null,
     ultimaLettura: 0,
+    scadutePerse: 0,
     annunciate: new Set(),
   };
   return globale.__crowdsec;
@@ -164,6 +167,24 @@ type RigaApi = {
   origin?: string;
   duration?: string;
 };
+
+/**
+ * Una decisione già scaduta.
+ *
+ * CrowdSec esprime il tempo residuo come durata firmata: `47h12m` è
+ * «ancora quarantasette ore», `-49h41m45s` è «finita da quarantanove ore».
+ * Con `startup=true` l'API restituisce anche queste, perché la pulizia del
+ * suo archivio è periodica e non istantanea.
+ *
+ * Trattarle come attive — che è quello che facevamo — significa mostrare
+ * sotto «bloccati adesso» centinaia di indirizzi che passano da giorni, e
+ * scriverli nello storico marcati come in vigore. Un pannello che dichiara
+ * un blocco inesistente è peggio di un pannello vuoto: ci si fida di lui
+ * per decidere.
+ */
+function eScaduta(durata: string): boolean {
+  return durata.trim().startsWith("-");
+}
 
 function normalizza(riga: RigaApi, adesso: number): DecisioneCrowdSec | null {
   if (!riga.value) return null;
@@ -252,12 +273,28 @@ export async function leggiDecisioni(): Promise<number | null> {
     const corpo = (await risposta.json()) as { new?: RigaApi[] };
     const adesso = Date.now();
 
+    /**
+     * Il tetto si applica DOPO aver scartato le scadute, non prima.
+     *
+     * L'API le restituisce in ordine di scadenza, quindi le più vecchie —
+     * cioè le finite — arrivano per prime: tagliando a trecento sulla lista
+     * grezza si riempiva la memoria di provvedimenti conclusi e si
+     * buttavano proprio quelli in vigore.
+     */
     const aggiornate = new Map<string, DecisioneCrowdSec>();
+    let scadute = 0;
     for (const riga of corpo.new ?? []) {
       const voce = normalizza(riga, adesso);
       if (!voce) continue;
+      if (eScaduta(voce.durata)) {
+        scadute += 1;
+        continue;
+      }
       if (aggiornate.size >= MAX_IN_MEMORIA) break;
       aggiornate.set(`${voce.valore}|${voce.scenario}`, voce);
+    }
+    if (scadute > 0) {
+      dep.scadutePerse = scadute;
     }
 
     /**
