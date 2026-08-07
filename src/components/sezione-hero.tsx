@@ -36,8 +36,18 @@ export function SezioneHero({
           <Orologio />
         </div>
 
-        <div className="grid gap-10 py-14 sm:py-24 lg:grid-cols-[1fr_320px] lg:gap-16">
-          <div>
+        {/* Una colonna sola.
+            Qui accanto c'era una "scheda tecnica": il sottotitolo più tre
+            righe di dati (Ambiti 04, Consegna 5–30 gg, Pannello incluso).
+            È stata tolta per due motivi che vanno insieme. Il primo è di
+            sostanza: quei valori erano scritti nel codice, quindi
+            invecchiavano da soli — "Ambiti 04" restava 04 anche
+            aggiungendo un servizio dal pannello, e nessuno se ne sarebbe
+            accorto. Il secondo è di attenzione: sopra la piega la pagina
+            deve portare a una cosa sola, e tre dati non modificabili
+            competevano con i pulsanti senza aggiungere niente. */}
+        <div className="py-14 sm:py-24">
+          <div className="max-w-4xl">
             <h1 className="display text-[clamp(2.75rem,11vw,8.5rem)]">
               {righe.map((riga, indiceRiga) => (
                 <span key={indiceRiga} className="block overflow-hidden">
@@ -57,6 +67,21 @@ export function SezioneHero({
               ))}
             </h1>
 
+            {/* Il sottotitolo resta, ma sotto il titolo invece che in una
+                colonna a fianco: è testo modificabile dal pannello
+                (`hero.sottotitolo`), e toglierlo avrebbe reso muto un campo
+                che qualcuno continua a compilare. Quello che è sparito è la
+                tabella di dati scritti nel codice, che invece non era
+                modificabile da nessuna parte. */}
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: ridotto ? 0 : 0.4, duration: 0.5 }}
+              className="mono mt-8 max-w-2xl text-[13px] leading-[1.75] text-[var(--testo-tenue)] sm:text-[14px]"
+            >
+              {sottotitolo}
+            </motion.p>
+
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -70,40 +95,6 @@ export function SezioneHero({
               <BottoneVuoto href="#abbonamenti">{ctaSecondaria}</BottoneVuoto>
             </motion.div>
           </div>
-
-          {/* Colonna laterale: scheda tecnica */}
-          <motion.aside
-            initial={{ opacity: 0, x: ridotto ? 0 : 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{
-              delay: ridotto ? 0 : 0.4,
-              duration: 0.6,
-              ease: SCATTO,
-            }}
-            className="flex flex-col justify-end border-l border-[var(--bordo)] pl-6 lg:pl-8"
-          >
-            <p className="mono text-[13px] leading-[1.75] text-[var(--testo-tenue)]">
-              {sottotitolo}
-            </p>
-
-            <dl className="mt-8 border-t border-[var(--bordo)]">
-              {[
-                ["Ambiti", "04"],
-                ["Consegna", "5–30 gg"],
-                ["Pannello", "Incluso"],
-              ].map(([chiave, valore]) => (
-                <div
-                  key={chiave}
-                  className="flex items-baseline justify-between border-b border-[var(--bordo)] py-2.5"
-                >
-                  <dt className="etichetta">{chiave}</dt>
-                  <dd className="mono text-[13px] text-[var(--testo)]">
-                    {valore}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </motion.aside>
         </div>
       </div>
 

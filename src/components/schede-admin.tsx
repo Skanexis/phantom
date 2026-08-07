@@ -3,12 +3,17 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { vibra } from "@/components/telegram-provider";
+import { Icone, type NomeIcona } from "@/components/icone";
 import { Freccia } from "@/components/ui";
 
 type Scheda = {
   id: string;
   etichetta: string;
   contatore?: number;
+  /** Icona accanto all'etichetta. Facoltativa: la barra principale del
+   * pannello ne fa a meno, quelle annidate ci guadagnano — con otto voci
+   * ravvicinate il segno grafico si trova prima della parola. */
+  icona?: NomeIcona;
   /** Raggiungibile solo via schedaIniziale (es. da un link esterno): niente
    * bottone nella barra, così non compete con le voci di navigazione
    * normale ma resta un punto d'arrivo valido. */
@@ -19,12 +24,22 @@ export function SchedeAdmin({
   schede,
   children,
   schedaIniziale,
+  annidata = false,
 }: {
   schede: Scheda[];
   children: Record<string, React.ReactNode>;
   /** Per arrivare già sulla scheda giusta da un link esterno (es. una
    * notifica): ignorata se non corrisponde a nessuna scheda esistente. */
   schedaIniziale?: string;
+  /**
+   * Dentro un'altra barra di schede.
+   *
+   * Toglie l'aggancio in alto e riduce i margini. Due barre appiccicate
+   * l'una sotto l'altra si sovrapporrebbero scorrendo — la seconda
+   * finirebbe sopra la prima o sotto l'intestazione — e occuperebbero
+   * insieme un terzo dello schermo del telefono.
+   */
+  annidata?: boolean;
 }) {
   const schedeVisibili = schede.filter((s) => !s.nascosta);
   const primaValida = schede.some((s) => s.id === schedaIniziale)
@@ -97,16 +112,25 @@ export function SchedeAdmin({
   };
 
   return (
-    <div className="mt-5 sm:mt-10">
+    <div className={annidata ? "" : "mt-5 sm:mt-10"}>
       {/* Le schede restano agganciate sotto la navigazione: scendendo nel
           contenuto si cambia sezione senza tornare in cima. top-14 è
-          l'altezza dell'intestazione del sito. */}
-      <div className="relative sticky top-14 z-40 bg-[var(--sfondo)]">
+          l'altezza dell'intestazione del sito. Quelle annidate no: due
+          barre agganciate si accavallerebbero. */}
+      <div
+        className={
+          annidata
+            ? "relative bg-[var(--sfondo)]"
+            : "relative sticky top-14 z-40 bg-[var(--sfondo)]"
+        }
+      >
         <div
           ref={barra}
           role="tablist"
           aria-label="Sezioni del pannello"
-          className="nascondi-barra -mx-4 flex overflow-x-auto border-y border-[var(--bordo)] sm:mx-0"
+          className={`nascondi-barra flex overflow-x-auto border-y border-[var(--bordo)] ${
+            annidata ? "" : "-mx-4 sm:mx-0"
+          }`}
         >
           {schedeVisibili.map((scheda, indice) => {
             const selezionata = attiva === scheda.id;
@@ -126,6 +150,11 @@ export function SchedeAdmin({
                 } ${indice === 0 ? "border-l sm:border-l-0" : ""}`}
               >
                 <span className="flex items-center gap-2">
+                  {scheda.icona &&
+                    (() => {
+                      const Icona = Icone[scheda.icona];
+                      return <Icona className="h-3.5 w-3.5 shrink-0" />;
+                    })()}
                   {scheda.etichetta}
                   {scheda.contatore !== undefined && scheda.contatore > 0 && (
                     <span
@@ -164,7 +193,7 @@ export function SchedeAdmin({
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.22 }}
-        className="mt-8"
+        className={annidata ? "mt-4" : "mt-8"}
       >
         {children[attiva]}
       </motion.div>

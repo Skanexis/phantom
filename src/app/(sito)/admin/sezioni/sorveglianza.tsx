@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Etichetta } from "@/components/ui";
 import { Icone, type NomeIcona } from "@/components/icone";
 import { ModuloAzione } from "@/components/modulo-azione";
+import { SchedeAdmin } from "@/components/schede-admin";
 import {
   bandisciSubito,
   creaBando,
@@ -13,8 +14,12 @@ import {
 } from "../azioni";
 import { ConsoleRegistro } from "./console-registro";
 import { Origine, type BersaglioBando } from "./riga-registro";
+import { SezioneAttaccanti, type Attaccante } from "./sorveglianza-attaccanti";
+import { SezioneCrowdSec, type StatoCrowdSec } from "./sorveglianza-crowdsec";
+import type { OperatoreRete } from "@/lib/reti-note";
 import { nomePaese, siglaPaese } from "@/lib/geo";
 import { sottorete } from "@/lib/rete";
+import { cifra, compatta } from "@/lib/cifre";
 import type { SchedaRete } from "@/lib/rete-inversa";
 import type { Istantanea, TipoEvento } from "@/lib/sorveglianza";
 import type { TipoBando } from "@/generated/prisma/client";
@@ -62,7 +67,8 @@ type Eccezione = {
   scadeIl: number | null;
 };
 
-type Dati = Istantanea & {
+type Dati = Omit<Istantanea, "sospetti"> & {
+  sospetti: Attaccante[];
   /** utenteId → nome leggibile, tradotto dal server. */
   nomi: Record<string, string>;
   /** ip → esito della risoluzione inversa, per il marcatore VPN. */
@@ -82,20 +88,9 @@ type Dati = Istantanea & {
     eccezioni: Eccezione[];
     ricorsiAperti: number;
   };
-  crowdsec: {
-    attivo: boolean;
-    collegato: boolean;
-    ultimoErrore: string | null;
-    ultimaLettura: number;
-    totale: number;
-    decisioni: {
-      valore: string;
-      tipo: string;
-      scenario: string;
-      origine: string;
-      durata: string;
-    }[];
-  };
+  crowdsec: StatoCrowdSec;
+  /** ip -> operatore riconosciuto per intervalli noti. */
+  operatori: Record<string, OperatoreRete>;
   flussi: { connessioni: number; soggetti: number; massimoSingolo: number };
   carico: {
     utenti: number;
@@ -212,10 +207,6 @@ function durata(millisecondi: number) {
   return `${Math.floor(ore / 24)}g ${ore % 24}h`;
 }
 
-/** Migliaia separate: 12480 diventa illeggibile in una griglia di numeri. */
-function cifra(valore: number) {
-  return valore.toLocaleString("it-IT");
-}
 
 /* ------------------------------- Mattoni --------------------------------- */
 
@@ -260,39 +251,195 @@ function Sezione({
 }
 
 /** Griglia di numeri: il mattone che si ripete in quasi ogni sezione. */
+type Piastrella = {
+  valore: string | number;
+  etichetta: string;
+  /** Lo stato "c'è qualcosa che non va": non è solo un colore, vedi sotto. */
+  acceso?: boolean;
+  tenue?: boolean;
+  /** Riga sotto l'etichetta: l'unità, il confronto, il contesto. */
+  nota?: string;
+};
+
+/**
+ * Griglia di piastrelle: il mattone che si ripete in quasi ogni scheda.
+ *
+ * Tre cose sono cambiate rispetto alla versione precedente, e tutte e tre
+ * per come si leggeva sul telefono.
+ *
+ * **Lo stato non è più solo il colore.** Un valore acceso diventava rosso e
+ * basta: chi non distingue il rosso dal grigio non vedeva alcuna
+ * differenza, e su uno schermo al sole nemmeno gli altri. Adesso porta un
+ * punto pieno accanto all'etichetta e la parola che lo spiega — il colore
+ * è il terzo segnale, non l'unico.
+ *
+ * **Figure proporzionali, non tabellari.** `tabular-nums` dà a ogni cifra
+ * la larghezza dello zero: in una colonna di numeri da allineare è quello
+ * che serve, ma su un numero grande e isolato fa sembrare "121" spaziato
+ * male. Le piastrelle non sono una colonna, sono riquadri affiancati.
+ *
+ * **Due colonne fisse su telefono, mai tre.** A 360 pixel una terza colonna
+ * lascia novanta pixel per un numero e la sua etichetta: entrambi
+ * illeggibili.
+ */
 function Cifre({
   voci,
   colonne = "sm:grid-cols-4",
 }: {
-  voci: {
-    valore: string | number;
-    etichetta: string;
-    acceso?: boolean;
-    tenue?: boolean;
-  }[];
+  voci: Piastrella[];
   colonne?: string;
 }) {
   return (
     <div className={`grid grid-cols-2 gap-px bg-[var(--bordo)] ${colonne}`}>
-      {voci.map((voce) => (
-        <div key={voce.etichetta} className="min-w-0 bg-[var(--sfondo)] p-3">
-          {/* clamp e tabular-nums: una cifra a sette caratteri usciva dalla
-              cella su schermo stretto, e le colonne di numeri ballavano
-              perché le glifi non avevano larghezza fissa. */}
-          <span
-            className={`display block text-[clamp(1rem,4.5vw,1.5rem)] leading-tight tabular-nums ${
-              voce.acceso
-                ? "text-[var(--allarme)]"
-                : voce.tenue
-                  ? "text-[var(--testo-tenue)]"
-                  : ""
-            }`}
+      {voci.map((voce) => {
+        const numero = typeof voce.valore === "number";
+        return (
+          <div
+            key={voce.etichetta}
+            // Allineate in alto e non distribuite: con justify-between le
+            // etichette scendevano fino al fondo della cella, quindi una
+            // piastrella con la nota e una senza avevano l'etichetta a due
+            // altezze diverse e la griglia sembrava sbilenca.
+            className="flex min-w-0 flex-col bg-[var(--sfondo)] p-3"
+            // Il valore per esteso resta raggiungibile: la cifra mostrata è
+            // accorciata, il titolo no.
+            title={
+              numero
+                ? `${voce.etichetta}: ${cifra(voce.valore as number)}`
+                : undefined
+            }
           >
-            {typeof voce.valore === "number" ? cifra(voce.valore) : voce.valore}
-          </span>
-          <Etichetta className="mt-1 block">{voce.etichetta}</Etichetta>
-        </div>
-      ))}
+            <span
+              className={`display block text-[clamp(1.25rem,6vw,1.75rem)] leading-none break-all ${
+                voce.acceso
+                  ? "text-[var(--allarme)]"
+                  : voce.tenue
+                    ? "text-[var(--testo-tenue)]"
+                    : ""
+              }`}
+            >
+              {numero ? compatta(voce.valore as number) : voce.valore}
+            </span>
+
+            {/* Il quadratino pieno è il secondo canale dello stato: una
+                presenza, non una tinta, quindi resta visibile in scala di
+                grigi e a occhi che non distinguono il rosso. Le parole «da
+                guardare» stavano qui accanto, ma su un'etichetta lunga
+                mandavano la riga a capo tre volte e trasformavano la
+                piastrella in un paragrafo: adesso le legge solo chi usa un
+                lettore di schermo, a cui il quadratino non arriva. */}
+            <span className="mt-2 flex items-baseline gap-1.5">
+              {voce.acceso && (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="mt-[3px] h-1.5 w-1.5 shrink-0 bg-[var(--allarme)]"
+                  />
+                  <span className="sr-only">Richiede attenzione: </span>
+                </>
+              )}
+              <Etichetta className="block min-w-0">{voce.etichetta}</Etichetta>
+            </span>
+
+            {voce.nota && (
+              <span className="mono mt-1 block text-[10px] leading-[1.5] text-[var(--testo-debole)]">
+                {voce.nota}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Le barre del traffico dell'ultima ora.
+ *
+ * Due serie impilate — servite e respinte — separate da un distacco di due
+ * pixel nel colore dello sfondo, non da un bordo: un bordo aggiunge
+ * inchiostro che non è dato, il vuoto separa e basta. Lo stesso distacco
+ * corre fra una barra e la vicina.
+ *
+ * Sui colori. Non è una coppia di categorie ma uno stato: «servite» è la
+ * normalità e porta il colore del testo, «respinte» è l'allarme. Le due
+ * tinte restano distinguibili anche a vista alterata — verificato, non
+ * supposto: ΔE 29 in deuteranopia, ben oltre la soglia di 8 — e comunque il
+ * colore non è mai l'unico canale, perché c'è la legenda sotto e il valore
+ * esatto al tocco.
+ *
+ * Niente estremità arrotondate, che pure sarebbero la regola generale: qui
+ * il sistema grafico del sito vieta gli angoli tondi ovunque, e un unico
+ * elemento arrotondato in mezzo a tutto il resto squadrato si nota come un
+ * errore invece che come cura.
+ */
+function BarreTraffico({
+  righe,
+  massimo,
+  scelto,
+  onScegli,
+  className = "",
+  etichettaInizio,
+}: {
+  righe: { minuto: number; totale: number; bloccate: number; ipUnici: number }[];
+  massimo: number;
+  scelto: number | null;
+  onScegli: (minuto: number | null) => void;
+  className?: string;
+  etichettaInizio: string;
+}) {
+  return (
+    <div className={className}>
+      <div
+        className="flex h-28 items-end gap-[2px]"
+        role="img"
+        aria-label={`Traffico al minuto, ${righe.length} minuti, punta di ${massimo} richieste`}
+      >
+        {righe.map((riga) => {
+          const altezza = (riga.totale / massimo) * 100;
+          const quotaBloccate =
+            riga.totale > 0 ? (riga.bloccate / riga.totale) * 100 : 0;
+          const attiva = riga.minuto === scelto;
+
+          return (
+            /* Il dettaglio si sceglie con un tocco e compare sotto, in una
+               riga fissa. Prima viveva in un fumetto su :hover — cioè non
+               esisteva affatto sul telefono, e sui due estremi del grafico
+               usciva comunque dallo schermo. */
+            <button
+              key={riga.minuto}
+              type="button"
+              onClick={() => onScegli(attiva ? null : riga.minuto)}
+              aria-pressed={attiva}
+              aria-label={`${orario(riga.minuto * 60_000)}: ${cifra(riga.totale)} richieste, ${riga.bloccate} respinte`}
+              className="relative h-full min-w-[4px] flex-1"
+            >
+              <span
+                className={`absolute bottom-0 w-full transition-[height] duration-300 ${
+                  attiva ? "bg-[var(--accento)]" : "bg-[var(--bordo-pieno)]"
+                }`}
+                style={{
+                  height: `${Math.max(altezza, riga.totale > 0 ? 2 : 0)}%`,
+                }}
+              >
+                {quotaBloccate > 0 && (
+                  <span
+                    // Il distacco di 2px fra i due segmenti: è lo sfondo a
+                    // separarli, non una linea.
+                    className="absolute inset-x-0 bottom-0 border-t-2 border-[var(--sfondo)] bg-[var(--allarme)]"
+                    style={{ height: `${quotaBloccate}%` }}
+                  />
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mono mt-1.5 flex items-center justify-between text-[10px] text-[var(--testo-debole)]">
+        <span>{etichettaInizio}</span>
+        <span>adesso</span>
+      </div>
     </div>
   );
 }
@@ -481,8 +628,7 @@ export function SezioneSorveglianza() {
       : undefined;
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* ---------------------------- Perimetro ---------------------------- */}
+    <div className="flex flex-col gap-4">      {/* ---------------------------- Perimetro ---------------------------- */}
       <section
         className={`border p-4 sm:p-6 ${
           allarme
@@ -547,6 +693,325 @@ export function SezioneSorveglianza() {
         )}
       </section>
 
+
+      {/* Il quadro si legge per gruppi, non in un rotolo unico.
+          Le sezioni erano tredici, una sotto l'altra, per millequattrocento
+          righe: per arrivare agli eventi bisognava scorrere oltre la
+          console, il carico applicativo e le classifiche. Domande diverse
+          — «cosa sta succedendo adesso», «chi mi sta attaccando», «chi ho
+          escluso» — vogliono schermate diverse. Lo stato del perimetro
+          resta qui sopra, fuori dalle schede: è il titolo di tutto. */}
+      <SchedeAdmin
+        annidata
+        schede={[
+          { id: "adesso", etichetta: "Adesso", icona: "impulso" },
+          {
+            id: "attacchi",
+            etichetta: "Attacchi",
+            icona: "mirino",
+            contatore: dati.sospetti.length,
+          },
+          { id: "traffico", etichetta: "Traffico", icona: "registro" },
+          {
+            id: "esclusioni",
+            etichetta: "Esclusioni",
+            icona: "divieto",
+            contatore: dati.provvedimenti.bandi.length,
+          },
+          { id: "crowdsec", etichetta: "CrowdSec", icona: "shield" },
+          { id: "sistema", etichetta: "Sistema", icona: "server" },
+        ]}
+      >
+        {{
+        adesso: (
+          <div className="flex flex-col gap-4">
+      {/* ------------------------- In tempo reale -------------------------- */}
+      <Sezione
+        icona="utenti"
+        titolo="In tempo reale"
+        nota={
+          flussi.massimoSingolo > 1
+            ? `punta di ${flussi.massimoSingolo} schede aperte da un solo utente`
+            : undefined
+        }
+      >
+        <Cifre
+          colonne="sm:grid-cols-3 lg:grid-cols-6"
+          voci={[
+            /* Le note portano il metro di paragone. Un numero senza
+               riferimento non si sa se è tanto o poco: "47 respinte" allarma
+               o rassicura a seconda della media, e la media è il dato che
+               mancava proprio accanto. */
+            {
+              valore: flussi.soggetti,
+              etichetta: "Utenti collegati",
+              nota:
+                flussi.connessioni > flussi.soggetti
+                  ? `${flussi.connessioni} schede aperte`
+                  : undefined,
+            },
+            { valore: dati.alMinuto, etichetta: "Richieste/min", nota: `media ${dati.mediaAlMinuto}` },
+            { valore: dati.ipAlMinuto, etichetta: "IP distinti/min" },
+            {
+              valore: dati.bloccateAlMinuto,
+              etichetta: "Respinte/min",
+              acceso: dati.bloccateAlMinuto > 0,
+              nota:
+                dati.alMinuto > 0
+                  ? `${Math.round((dati.bloccateAlMinuto / dati.alMinuto) * 100)}% del traffico`
+                  : undefined,
+            },
+            {
+              valore: dati.quarantena.length,
+              etichetta: "In quarantena",
+              acceso: dati.quarantena.length > 0,
+              nota: "automatica, 30 min",
+            },
+            {
+              valore: dati.sospetti.length,
+              etichetta: "Indirizzi con eventi",
+              acceso: dati.sospetti.length > 0,
+            },
+          ]}
+        />
+      </Sezione>
+
+      {/* ---------------------------- Traffico ----------------------------- */}
+      <Sezione
+        icona="grafico"
+        titolo="Traffico dell'ultima ora"
+        nota={`media ${dati.mediaAlMinuto}/min · punta ${cifra(dati.puntaOraria)}/min`}
+      >
+        {/**
+         * Due grafici, non uno che si adatta.
+         *
+         * Sessanta barre in trecentosessanta pixel danno cinque pixel a
+         * barra: si vede la forma ma non si può toccarne una — un dito ne
+         * copre tre. Su telefono si mostrano quindi gli ultimi trenta
+         * minuti, che raddoppiano la larghezza di ogni barra; su schermo
+         * largo l'ora intera. Stessi dati, stessa marcatura: cambia solo
+         * quante ne stanno comode.
+         */}
+        <BarreTraffico
+          righe={dati.traffico.slice(-30)}
+          massimo={massimo}
+          scelto={minutoScelto}
+          onScegli={setMinutoScelto}
+          className="sm:hidden"
+          etichettaInizio="30 min fa"
+        />
+        <BarreTraffico
+          righe={dati.traffico}
+          massimo={massimo}
+          scelto={minutoScelto}
+          onScegli={setMinutoScelto}
+          className="hidden sm:block"
+          etichettaInizio="60 min fa"
+        />
+
+        {/* Legenda sempre presente: con due serie il colore da solo non
+            basta mai a dire quale è quale. */}
+        <div className="mono mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-[var(--testo-debole)]">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-2 bg-[var(--bordo-pieno)]" />
+            servite
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-2 bg-[var(--allarme)]" />
+            respinte
+          </span>
+        </div>
+
+        <p
+          aria-live="polite"
+          className="mono mt-2 min-h-9 border-t border-[var(--bordo)] pt-2 text-[11.5px] leading-[1.6] text-[var(--testo-tenue)]"
+        >
+          {dettaglioMinuto ? (
+            <>
+              <span className="text-[var(--testo)]">
+                {orario(dettaglioMinuto.minuto * 60_000)}
+              </span>{" "}
+              · {cifra(dettaglioMinuto.totale)} richieste ·{" "}
+              <span
+                className={
+                  dettaglioMinuto.bloccate > 0 ? "text-[var(--allarme)]" : ""
+                }
+              >
+                {dettaglioMinuto.bloccate} respinte
+              </span>{" "}
+              · {dettaglioMinuto.ipUnici} IP distinti
+            </>
+          ) : (
+            "Tocca una barra per il dettaglio del minuto."
+          )}
+        </p>
+      </Sezione>
+
+          </div>
+        ),
+        attacchi: (
+          <div className="flex flex-col gap-4">
+      {/* --------------------------- Chi insiste --------------------------- */}
+      {/* Non un elenco di eventi ma un ritratto per indirizzo: quanti
+          tentativi, quali percorsi, a chi appartiene la rete. Vedi il
+          commento in testa a sorveglianza-attaccanti.tsx. */}
+      <SezioneAttaccanti
+        attaccanti={dati.sospetti}
+        operatori={dati.operatori}
+        rete={dati.rete}
+        onBandisci={scegliBersaglio}
+      />
+
+      {/* ---------------------------- Quarantena --------------------------- */}
+      {dati.quarantena.length > 0 && (
+        <Sezione
+          icona="divieto"
+          titolo={`Indirizzi in quarantena (${dati.quarantena.length})`}
+          nota="automatica e temporanea; lo staff collegato non viene mai bloccato"
+          accento
+        >
+          <div className="divide-y divide-[var(--bordo)]">
+            {dati.quarantena.map((voce) => (
+              <div
+                key={voce.ip}
+                className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="mono flex flex-wrap items-center gap-2 text-[13px] font-semibold break-all">
+                    {voce.ip}
+                    <Bersagli ip={voce.ip} onScegli={scegliBersaglio} />
+                  </p>
+                  <p className="mono mt-1 text-[11px] break-words text-[var(--testo-tenue)]">
+                    {voce.motivo}
+                  </p>
+                  <p className="mono mt-0.5 flex items-center gap-1.5 text-[10.5px] text-[var(--testo-debole)]">
+                    <Icone.orologio className="h-3 w-3 shrink-0" />
+                    si sblocca fra {durata(Math.max(voce.fino - dati.adesso, 0))}
+                  </p>
+                </div>
+                <ModuloAzione
+                  azione={liberaIndirizzo}
+                  className="flex shrink-0 flex-col gap-2"
+                >
+                  {({ inCorso }) => (
+                    <>
+                      <input type="hidden" name="ip" value={voce.ip} />
+                      <button
+                        type="submit"
+                        disabled={inCorso}
+                        className="mono spinta min-h-11 border border-[var(--bordo)] px-4 text-[11px] tracking-[0.12em] uppercase disabled:opacity-50"
+                      >
+                        {inCorso ? "…" : "Libera"}
+                      </button>
+                    </>
+                  )}
+                </ModuloAzione>
+              </div>
+            ))}
+          </div>
+        </Sezione>
+      )}
+
+      {/* ------------------------------ Eventi ----------------------------- */}
+      <Sezione
+        icona="registro"
+        titolo={`Giornale degli eventi (${cifra(dati.eventiUltimaOra)} nell'ultima ora)`}
+        nota={
+          dati.totali.eventi > 0
+            ? `${cifra(dati.totali.eventi)} dall'avvio`
+            : undefined
+        }
+      >
+        {Object.keys(dati.perTipo).length > 0 && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {Object.entries(dati.perTipo)
+              .sort((a, b) => b[1] - a[1])
+              .map(([tipo, quanti]) => {
+                const Icona = Icone[ICONE_EVENTO[tipo as TipoEvento]];
+                return (
+                  <span
+                    key={tipo}
+                    className={`mono flex items-center gap-1.5 border border-[var(--bordo)] px-2 py-1 text-[10px] tracking-[0.08em] uppercase ${coloreGravita(tipo as TipoEvento)}`}
+                  >
+                    <Icona className="h-3 w-3 shrink-0" />
+                    {ETICHETTE[tipo as TipoEvento]} · {quanti}
+                  </span>
+                );
+              })}
+          </div>
+        )}
+
+        {dati.eventi.length === 0 ? (
+          <p className="mono py-2 text-[12.5px] text-[var(--testo-tenue)]">
+            Nessun evento da quando il processo è attivo. È la situazione
+            normale: qui compare solo ciò che è stato respinto.
+          </p>
+        ) : (
+          <div className="max-h-[420px] divide-y divide-[var(--bordo)] overflow-y-auto">
+            {dati.eventi.map((evento) => {
+              const Icona = Icone[ICONE_EVENTO[evento.tipo]];
+              return (
+                <div key={evento.id} className="flex gap-3 py-2.5 first:pt-0">
+                  <Icona
+                    className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${coloreGravita(evento.tipo)}`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <span className="mono text-[11px] text-[var(--testo-debole)]">
+                        {orario(evento.quando)}
+                      </span>
+                      <span
+                        className={`mono text-[11px] font-semibold tracking-[0.08em] uppercase ${coloreGravita(evento.tipo)}`}
+                      >
+                        {ETICHETTE[evento.tipo]}
+                      </span>
+                      <span className="mono text-[12px] break-all">
+                        {evento.ip}
+                      </span>
+                      <Bersagli ip={evento.ip} onScegli={scegliBersaglio} />
+                    </div>
+                    <p className="mono mt-1 text-[11.5px] break-all text-[var(--testo-tenue)]">
+                      {evento.metodo} {evento.percorso}
+                      {evento.dettaglio ? ` — ${evento.dettaglio}` : ""}
+                    </p>
+                    {evento.agente && (
+                      <p className="mono mt-0.5 truncate text-[10.5px] text-[var(--testo-debole)]">
+                        {evento.agente}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Sezione>
+
+          </div>
+        ),
+        traffico: (
+          <div className="flex flex-col gap-4">
+      {/* ----------------------------- Console ----------------------------- */}
+      <Sezione
+        icona="registro"
+        titolo="Console del traffico"
+        nota={`${cifra(dati.totali.richieste)} richieste dall'avvio`}
+        accento={dati.totali.perLivello.critico > 0}
+      >
+        <ConsoleRegistro
+          righe={dati.registro}
+          nomi={dati.nomi}
+          rete={dati.rete}
+          tracciate={dati.registroTracciato}
+          puoBandire
+          onBandisci={scegliBersaglio}
+        />
+      </Sezione>
+
+          </div>
+        ),
+        esclusioni: (
+          <div className="flex flex-col gap-4">
       {/* --------------------------- Esclusione ---------------------------- */}
       {/* In cima e non in fondo: vedi la nota in testa al file. */}
       <Sezione
@@ -668,54 +1133,6 @@ export function SezioneSorveglianza() {
         )}
       </Sezione>
 
-      {/* ------------------------- In tempo reale -------------------------- */}
-      <Sezione
-        icona="utenti"
-        titolo="In tempo reale"
-        nota={
-          flussi.massimoSingolo > 0
-            ? `punta di ${flussi.massimoSingolo} schede per un solo utente`
-            : undefined
-        }
-      >
-        <Cifre
-          colonne="sm:grid-cols-3 lg:grid-cols-6"
-          voci={[
-            { valore: flussi.soggetti, etichetta: "Utenti collegati" },
-            { valore: flussi.connessioni, etichetta: "Connessioni SSE" },
-            { valore: dati.alMinuto, etichetta: "Richieste/min" },
-            { valore: dati.ipAlMinuto, etichetta: "IP distinti/min" },
-            {
-              valore: dati.bloccateAlMinuto,
-              etichetta: "Respinte/min",
-              acceso: dati.bloccateAlMinuto > 0,
-            },
-            {
-              valore: dati.quarantena.length,
-              etichetta: "In quarantena",
-              acceso: dati.quarantena.length > 0,
-            },
-          ]}
-        />
-      </Sezione>
-
-      {/* ----------------------------- Console ----------------------------- */}
-      <Sezione
-        icona="registro"
-        titolo="Console del traffico"
-        nota={`${cifra(dati.totali.richieste)} richieste dall'avvio`}
-        accento={dati.totali.perLivello.critico > 0}
-      >
-        <ConsoleRegistro
-          righe={dati.registro}
-          nomi={dati.nomi}
-          rete={dati.rete}
-          tracciate={dati.registroTracciato}
-          puoBandire
-          onBandisci={scegliBersaglio}
-        />
-      </Sezione>
-
       {/* ------------------------ Esclusioni in vigore --------------------- */}
       <Sezione
         icona="divieto"
@@ -817,81 +1234,17 @@ export function SezioneSorveglianza() {
         )}
       </Sezione>
 
+          </div>
+        ),
+        crowdsec: (
+          <div className="flex flex-col gap-4">
       {/* ----------------------------- CrowdSec ---------------------------- */}
-      {dati.crowdsec.attivo && (
-        <Sezione
-          icona="shield"
-          titolo={`CrowdSec (${cifra(dati.crowdsec.totale)} decisioni)`}
-          nota={
-            dati.crowdsec.collegato
-              ? "blocco nel firewall: questo traffico non arriva né a Nginx né qui"
-              : (dati.crowdsec.ultimoErrore ?? "non raggiungibile")
-          }
-          accento={!dati.crowdsec.collegato}
-        >
-          {!dati.crowdsec.collegato ? (
-            <p className="mono text-[11.5px] leading-[1.7] text-[var(--allarme)]">
-              L&apos;agente non risponde. Il sito funziona lo stesso — CrowdSec
-              è uno strumento in più, non una dipendenza — ma finché resta
-              così nessuno sta filtrando a monte.{" "}
-              <span className="text-[var(--testo-debole)]">
-                systemctl status crowdsec
-              </span>
-            </p>
-          ) : dati.crowdsec.decisioni.length === 0 ? (
-            <p className="mono text-[12px] text-[var(--testo-tenue)]">
-              Nessuna decisione in vigore.
-            </p>
-          ) : (
-            <>
-              <div className="divide-y divide-[var(--bordo)]">
-                {dati.crowdsec.decisioni.map((voce) => {
-                  const condiviso =
-                    voce.origine === "CAPI" || voce.origine === "lists";
-                  return (
-                    <div
-                      key={`${voce.valore}-${voce.scenario}`}
-                      className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2 first:pt-0 last:pb-0"
-                    >
-                      <span className="mono flex min-w-0 flex-wrap items-center gap-2 text-[12px]">
-                        <span
-                          title={
-                            condiviso
-                              ? "Segnalato da altri: elenco condiviso"
-                              : "Deciso qui, sul traffico di questo sito"
-                          }
-                          className={`shrink-0 border px-1 text-[9px] tracking-[0.06em] uppercase ${
-                            condiviso
-                              ? "border-[var(--bordo)] text-[var(--testo-debole)]"
-                              : "border-[var(--allarme)] text-[var(--allarme)]"
-                          }`}
-                        >
-                          {condiviso ? "rete" : "qui"}
-                        </span>
-                        <span className="break-all">{voce.valore}</span>
-                      </span>
-                      <span className="mono text-[10.5px] break-words text-[var(--testo-tenue)]">
-                        {voce.scenario} · {voce.durata}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="mono mt-3 text-[10.5px] leading-[1.6] text-[var(--testo-debole)]">
-                Le voci marcate «qui» sono state decise su questo sito; quelle
-                marcate «rete» arrivano dall&apos;elenco condiviso, cioè da
-                indirizzi già segnalati altrove. Solo le prime generano un
-                avviso su Telegram: le seconde sono decine di migliaia e
-                renderebbero il canale illeggibile. L&apos;elenco completo:{" "}
-                <span className="text-[var(--testo-tenue)]">
-                  cscli decisions list
-                </span>
-              </p>
-            </>
-          )}
-        </Sezione>
-      )}
+      <SezioneCrowdSec stato={dati.crowdsec} operatori={dati.operatori} />
 
+          </div>
+        ),
+        sistema: (
+          <div className="flex flex-col gap-4">
       {/* ----------------------------- Account ----------------------------- */}
       <Sezione
         icona="utenti"
@@ -1001,81 +1354,6 @@ export function SezioneSorveglianza() {
         )}
       </Sezione>
 
-      {/* ---------------------------- Traffico ----------------------------- */}
-      <Sezione
-        icona="grafico"
-        titolo="Traffico dell'ultima ora"
-        nota={`media ${dati.mediaAlMinuto}/min · punta ${cifra(dati.puntaOraria)}/min`}
-      >
-        <div
-          className="flex h-28 items-end gap-px"
-          role="img"
-          aria-label={`Traffico dell'ultima ora, punta di ${dati.puntaOraria} richieste al minuto`}
-        >
-          {dati.traffico.map((riga) => {
-            const altezza = (riga.totale / massimo) * 100;
-            const quotaBloccate =
-              riga.totale > 0 ? (riga.bloccate / riga.totale) * 100 : 0;
-            const scelto = riga.minuto === minutoScelto;
-            return (
-              /* Il dettaglio si sceglie con un tocco e compare sotto, in una
-                 riga fissa. Prima viveva in un fumetto su :hover — cioè non
-                 esisteva affatto sul telefono, e sui due estremi del grafico
-                 usciva comunque dallo schermo. */
-              <button
-                key={riga.minuto}
-                type="button"
-                onClick={() =>
-                  setMinutoScelto(scelto ? null : riga.minuto)
-                }
-                aria-label={`${cifra(riga.totale)} richieste, ${riga.bloccate} respinte`}
-                className="relative h-full flex-1"
-              >
-                <span
-                  className={`absolute bottom-0 w-full transition-[height] duration-300 ${
-                    scelto ? "bg-[var(--accento)]" : "bg-[var(--bordo-pieno)]"
-                  }`}
-                  style={{
-                    height: `${Math.max(altezza, riga.totale > 0 ? 2 : 0)}%`,
-                  }}
-                >
-                  {quotaBloccate > 0 && (
-                    <span
-                      className="absolute bottom-0 w-full bg-[var(--allarme)]"
-                      style={{ height: `${quotaBloccate}%` }}
-                    />
-                  )}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mono mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] text-[var(--testo-debole)]">
-          <span>60 min fa</span>
-          <span className="flex items-center gap-3">
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block h-2 w-2 bg-[var(--bordo-pieno)]" />
-              servite
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block h-2 w-2 bg-[var(--allarme)]" />
-              respinte
-            </span>
-          </span>
-          <span>adesso</span>
-        </div>
-
-        <p
-          aria-live="polite"
-          className="mono mt-2 min-h-5 border-t border-[var(--bordo)] pt-2 text-[11px] text-[var(--testo-tenue)]"
-        >
-          {dettaglioMinuto
-            ? `${orario(dettaglioMinuto.minuto * 60_000)} · ${cifra(dettaglioMinuto.totale)} richieste · ${dettaglioMinuto.bloccate} respinte · ${dettaglioMinuto.ipUnici} IP distinti`
-            : "Tocca una barra per il dettaglio del minuto."}
-        </p>
-      </Sezione>
-
       {/* ----------------------------- Sistemi ----------------------------- */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Sezione
@@ -1086,16 +1364,29 @@ export function SezioneSorveglianza() {
           <Cifre
             colonne="sm:grid-cols-4"
             voci={[
-              { valore: `${processo.memoriaMb} MB`, etichetta: "Memoria (RSS)" },
               {
-                valore: `${processo.heapUsatoMb}/${processo.heapTotaleMb}`,
-                etichetta: "Heap MB",
+                valore: `${processo.memoriaMb}`,
+                etichetta: "Memoria",
+                // L'unità nella nota e non nel valore: la cifra grande deve
+                // restare una cifra, leggibile di sfuggita.
+                nota: `MB · tetto 1024`,
+                acceso: processo.memoriaMb > 850,
               },
-              { valore: dati.totali.richieste, etichetta: "Richieste totali" },
+              {
+                valore: `${processo.heapUsatoMb}`,
+                etichetta: "Heap",
+                nota: `MB su ${processo.heapTotaleMb}`,
+              },
+              {
+                valore: dati.totali.richieste,
+                etichetta: "Richieste totali",
+                nota: "dall'avvio",
+              },
               {
                 valore: dati.totali.eventi,
                 etichetta: "Eventi totali",
                 acceso: dati.totali.eventi > 0,
+                nota: "dall'avvio",
               },
             ]}
           />
@@ -1161,176 +1452,6 @@ export function SezioneSorveglianza() {
           </p>
         </Sezione>
       </div>
-
-      {/* ---------------------------- Quarantena --------------------------- */}
-      {dati.quarantena.length > 0 && (
-        <Sezione
-          icona="divieto"
-          titolo={`Indirizzi in quarantena (${dati.quarantena.length})`}
-          nota="automatica e temporanea; lo staff collegato non viene mai bloccato"
-          accento
-        >
-          <div className="divide-y divide-[var(--bordo)]">
-            {dati.quarantena.map((voce) => (
-              <div
-                key={voce.ip}
-                className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="min-w-0">
-                  <p className="mono flex flex-wrap items-center gap-2 text-[13px] font-semibold break-all">
-                    {voce.ip}
-                    <Bersagli ip={voce.ip} onScegli={scegliBersaglio} />
-                  </p>
-                  <p className="mono mt-1 text-[11px] break-words text-[var(--testo-tenue)]">
-                    {voce.motivo}
-                  </p>
-                  <p className="mono mt-0.5 flex items-center gap-1.5 text-[10.5px] text-[var(--testo-debole)]">
-                    <Icone.orologio className="h-3 w-3 shrink-0" />
-                    si sblocca fra {durata(Math.max(voce.fino - dati.adesso, 0))}
-                  </p>
-                </div>
-                <ModuloAzione
-                  azione={liberaIndirizzo}
-                  className="flex shrink-0 flex-col gap-2"
-                >
-                  {({ inCorso }) => (
-                    <>
-                      <input type="hidden" name="ip" value={voce.ip} />
-                      <button
-                        type="submit"
-                        disabled={inCorso}
-                        className="mono spinta min-h-11 border border-[var(--bordo)] px-4 text-[11px] tracking-[0.12em] uppercase disabled:opacity-50"
-                      >
-                        {inCorso ? "…" : "Libera"}
-                      </button>
-                    </>
-                  )}
-                </ModuloAzione>
-              </div>
-            ))}
-          </div>
-        </Sezione>
-      )}
-
-      {/* --------------------------- Chi insiste --------------------------- */}
-      {dati.sospetti.length > 0 && (
-        <Sezione
-          icona="allarme"
-          titolo={`Indirizzi con eventi (${cifra(dati.sospettiTracciati)})`}
-          nota="ordinati per numero di tentativi respinti"
-        >
-          <div className="divide-y divide-[var(--bordo)]">
-            {dati.sospetti.map((voce) => (
-              <div key={voce.ip} className="py-3 first:pt-0 last:pb-0">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <span className="mono flex min-w-0 flex-wrap items-center gap-2 text-[13px] font-semibold">
-                    {voce.inQuarantena && (
-                      <Icone.divieto className="h-3.5 w-3.5 shrink-0 text-[var(--allarme)]" />
-                    )}
-                    <span className="break-all">{voce.ip}</span>
-                    <Origine rete={dati.rete[voce.ip]} />
-                    <Bersagli ip={voce.ip} onScegli={scegliBersaglio} />
-                  </span>
-                  <span className="mono text-[11px] text-[var(--testo-tenue)]">
-                    {voce.eventi} respinte su {cifra(voce.richieste)} richieste
-                    · {orario(voce.ultimo)}
-                  </span>
-                </div>
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {Object.entries(voce.tipi).map(([tipo, quanti]) => (
-                    <span
-                      key={tipo}
-                      className={`mono border border-[var(--bordo)] px-1.5 py-0.5 text-[10px] ${coloreGravita(tipo as TipoEvento)}`}
-                    >
-                      {ETICHETTE[tipo as TipoEvento]} ×{quanti}
-                    </span>
-                  ))}
-                </div>
-                {voce.agente && (
-                  <p className="mono mt-1 truncate text-[10px] text-[var(--testo-debole)]">
-                    {voce.agente}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </Sezione>
-      )}
-
-      {/* ------------------------------ Eventi ----------------------------- */}
-      <Sezione
-        icona="registro"
-        titolo={`Giornale degli eventi (${cifra(dati.eventiUltimaOra)} nell'ultima ora)`}
-        nota={
-          dati.totali.eventi > 0
-            ? `${cifra(dati.totali.eventi)} dall'avvio`
-            : undefined
-        }
-      >
-        {Object.keys(dati.perTipo).length > 0 && (
-          <div className="mb-3 flex flex-wrap gap-2">
-            {Object.entries(dati.perTipo)
-              .sort((a, b) => b[1] - a[1])
-              .map(([tipo, quanti]) => {
-                const Icona = Icone[ICONE_EVENTO[tipo as TipoEvento]];
-                return (
-                  <span
-                    key={tipo}
-                    className={`mono flex items-center gap-1.5 border border-[var(--bordo)] px-2 py-1 text-[10px] tracking-[0.08em] uppercase ${coloreGravita(tipo as TipoEvento)}`}
-                  >
-                    <Icona className="h-3 w-3 shrink-0" />
-                    {ETICHETTE[tipo as TipoEvento]} · {quanti}
-                  </span>
-                );
-              })}
-          </div>
-        )}
-
-        {dati.eventi.length === 0 ? (
-          <p className="mono py-2 text-[12.5px] text-[var(--testo-tenue)]">
-            Nessun evento da quando il processo è attivo. È la situazione
-            normale: qui compare solo ciò che è stato respinto.
-          </p>
-        ) : (
-          <div className="max-h-[420px] divide-y divide-[var(--bordo)] overflow-y-auto">
-            {dati.eventi.map((evento) => {
-              const Icona = Icone[ICONE_EVENTO[evento.tipo]];
-              return (
-                <div key={evento.id} className="flex gap-3 py-2.5 first:pt-0">
-                  <Icona
-                    className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${coloreGravita(evento.tipo)}`}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                      <span className="mono text-[11px] text-[var(--testo-debole)]">
-                        {orario(evento.quando)}
-                      </span>
-                      <span
-                        className={`mono text-[11px] font-semibold tracking-[0.08em] uppercase ${coloreGravita(evento.tipo)}`}
-                      >
-                        {ETICHETTE[evento.tipo]}
-                      </span>
-                      <span className="mono text-[12px] break-all">
-                        {evento.ip}
-                      </span>
-                      <Bersagli ip={evento.ip} onScegli={scegliBersaglio} />
-                    </div>
-                    <p className="mono mt-1 text-[11.5px] break-all text-[var(--testo-tenue)]">
-                      {evento.metodo} {evento.percorso}
-                      {evento.dettaglio ? ` — ${evento.dettaglio}` : ""}
-                    </p>
-                    {evento.agente && (
-                      <p className="mono mt-0.5 truncate text-[10.5px] text-[var(--testo-debole)]">
-                        {evento.agente}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Sezione>
 
       {/* --------------------- Percorsi e indirizzi ------------------------ */}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -1407,6 +1528,10 @@ export function SezioneSorveglianza() {
           </div>
         </Sezione>
       </div>
+          </div>
+        ),
+        }}
+      </SchedeAdmin>
 
       <p className="mono text-[10.5px] leading-[1.7] text-[var(--testo-debole)]">
         Il quadro qui sopra vive nella memoria del processo e un riavvio lo

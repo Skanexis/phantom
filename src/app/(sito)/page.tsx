@@ -13,27 +13,28 @@ import {
 import { caricaDatiHomepage, formattaPrezzo, testo } from "@/lib/contenuti";
 
 /**
- * La homepage non dipende da chi la guarda.
+ * La pagina si ricostruisce a ogni richiesta; a essere in cache sono i dati.
  *
- * Era `force-dynamic`, quindi ogni singola visita rieseguiva sette
- * interrogazioni al database e ricostruiva l'intera pagina da capo — per
- * ottenere, visita dopo visita, esattamente lo stesso HTML. Il contenuto
- * (servizi, piani, vantaggi, FAQ, contatti, testi) cambia solo quando
- * qualcuno lo modifica dal pannello, e quelle azioni chiamano già
- * `revalidatePath("/")`: la pagina si rigenera nell'istante in cui il
- * contenuto cambia, non a ogni visitatore.
+ * Prima era il contrario: l'HTML restava in cache un'ora e le azioni del
+ * pannello lo rigeneravano con `revalidatePath("/")`. Sulla carta è
+ * corretto, ma quella catena ha un anello che nessuno può ispezionare — se
+ * la rigenerazione non avviene, non lo segnala niente. Chi aveva appena
+ * cambiato un contatto vedeva la pagina vecchia senza poter distinguere fra
+ * "ho sbagliato io", "devo aspettare" e "è rotto".
+ *
+ * Ricostruire non costa quasi nulla, perché le sette interrogazioni sono in
+ * `unstable_cache` con un'etichetta (vedi `caricaDatiHomepage` in
+ * lib/contenuti.ts): il traffico normale non tocca il database, e una
+ * modifica dal pannello invalida l'etichetta e compare alla richiesta
+ * successiva. Resta la copia di Nginx davanti, ma quella dura pochi secondi
+ * ed è dichiarata nella sua configurazione.
  *
  * Niente qui dentro guarda la sessione: la navigazione e l'orologio sono
  * componenti client, che si montano nel browser. Il cantiere non c'entra —
  * quando SITO_CHIUSO è attivo il proxy devia la richiesta prima ancora di
- * arrivare a questa pagina, cache o non cache.
- *
- * L'ora di validità è una rete di sicurezza, non il meccanismo principale:
- * serve solo se una rigenerazione andasse persa, per esempio perché la
- * pagina è stata modificata direttamente a database senza passare dal
- * pannello.
+ * arrivare a questa pagina.
  */
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 const ambitiSuMisura = [
   { etichetta: "Sito web", href: "/richiesta?ambito=SITO_WEB", codice: "01" },
@@ -58,24 +59,36 @@ export default async function Home() {
           ctaSecondaria={testo(contenuti, "hero.cta.secondaria")}
         />
 
-        {/* 01 — Chi siamo */}
-        <Sezione>
+        {/* 01 — Abbonamenti
+            Primi, e non a metà pagina: chi arriva qui vuole sapere prima di
+            tutto quanto costa e cosa riceve. Prima erano quarti, dopo tre
+            sezioni di presentazione — cioè dopo il punto in cui la maggior
+            parte delle persone smette di scorrere. */}
+        <Sezione id="abbonamenti">
           <Rivela>
-            <div className="grid gap-8 lg:grid-cols-[240px_1fr] lg:gap-16">
-              <div className="border-t border-[var(--bordo)] pt-5">
-                <Etichetta className="text-[var(--accento)]">01</Etichetta>
-                <p className="mono mt-3 text-[12px] uppercase tracking-[0.12em]">
-                  {testo(contenuti, "azienda.titolo")}
-                </p>
-              </div>
-              <p className="text-[20px] leading-[1.45] tracking-[-0.01em] sm:text-[28px]">
-                {testo(contenuti, "azienda.testo")}
-              </p>
-            </div>
+            <TitoloSezione
+              numero="01"
+              titolo={testo(contenuti, "abbonamenti.titolo")}
+              descrizione={testo(contenuti, "abbonamenti.sottotitolo")}
+            />
           </Rivela>
+
+          <CaroselloAbbonamenti
+            piani={abbonamenti.map((piano) => ({
+              id: piano.id,
+              slug: piano.slug,
+              nome: piano.nome,
+              sottotitolo: piano.sottotitolo,
+              descrizione: piano.descrizione,
+              prezzo: formattaPrezzo(piano.prezzoCentesimi, piano.valuta),
+              periodo: piano.periodo,
+              inEvidenza: piano.inEvidenza,
+              funzionalita: piano.funzionalita,
+            }))}
+          />
         </Sezione>
 
-        {/* 02 — Servizi */}
+        {/* 02 — Cosa facciamo */}
         <Sezione id="servizi">
           <Rivela>
             <TitoloSezione
@@ -108,65 +121,55 @@ export default async function Home() {
           </Scaglionato>
         </Sezione>
 
-        {/* 03 — Vantaggi */}
-        <Sezione>
+        {/* 03 — Su misura: chiedere un progetto proprio.
+            Subito dopo "cosa facciamo", perché è la domanda che nasce da
+            quella risposta: ho capito cosa fate, adesso voglio la mia
+            cosa. Prima stava sesta, dopo le automazioni. */}
+        <Sezione id="su-misura">
           <Rivela>
-            <TitoloSezione
-              numero="03"
-              titolo={testo(contenuti, "vantaggi.titolo")}
-              descrizione={testo(contenuti, "vantaggi.sottotitolo")}
-            />
-          </Rivela>
+            <div className="border border-[var(--bordo)]">
+              <div className="border-b border-[var(--bordo)] p-7 sm:p-12">
+                <Etichetta className="text-[var(--accento)]">03</Etichetta>
+                <h2 className="display mt-5 max-w-3xl text-[34px] sm:text-[64px]">
+                  {testo(contenuti, "sumisura.titolo")}
+                </h2>
+                <p className="mono mt-5 max-w-xl text-[13px] leading-[1.75] text-[var(--testo-tenue)]">
+                  {testo(contenuti, "sumisura.sottotitolo")}
+                </p>
+              </div>
 
-          <Scaglionato className="mt-12 border-t border-[var(--bordo)]">
-            {vantaggi.map((vantaggio, indice) => (
-              <Voce key={vantaggio.id}>
-                <div className="group grid items-baseline gap-3 border-b border-[var(--bordo)] py-6 transition-colors hover:bg-[var(--sfondo-alt)] sm:grid-cols-[80px_260px_1fr] sm:gap-8 sm:py-7">
-                  <Etichetta className="group-hover:text-[var(--accento)]">
-                    {String(indice + 1).padStart(2, "0")}
-                  </Etichetta>
-                  <h3 className="text-[19px] font-semibold tracking-[-0.01em] sm:text-[21px]">
-                    {vantaggio.titolo}
-                  </h3>
-                  <p className="mono text-[12.5px] leading-[1.7] text-[var(--testo-tenue)]">
-                    {vantaggio.descrizione}
-                  </p>
-                </div>
-              </Voce>
-            ))}
-          </Scaglionato>
+              <div className="grid sm:grid-cols-3">
+                {ambitiSuMisura.map((voce, indice) => (
+                  <Link
+                    key={voce.href}
+                    href={voce.href}
+                    className={`group flex items-center justify-between p-6 transition-colors hover:bg-[var(--accento)] sm:p-7 ${
+                      indice < ambitiSuMisura.length - 1
+                        ? "border-b border-[var(--bordo)] sm:border-b-0 sm:border-r"
+                        : ""
+                    }`}
+                  >
+                    <span>
+                      <span className="etichetta block group-hover:text-[var(--accento-testo)]">
+                        {voce.codice}
+                      </span>
+                      <span className="mt-2 block text-[19px] font-semibold tracking-[-0.01em] group-hover:text-[var(--accento-testo)]">
+                        {voce.etichetta}
+                      </span>
+                    </span>
+                    <Freccia className="h-4 w-4 transition-transform group-hover:translate-x-1 group-hover:text-[var(--accento-testo)]" />
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </Rivela>
         </Sezione>
 
-        {/* 04 — Abbonamenti */}
-        <Sezione id="abbonamenti">
-          <Rivela>
-            <TitoloSezione
-              numero="04"
-              titolo={testo(contenuti, "abbonamenti.titolo")}
-              descrizione={testo(contenuti, "abbonamenti.sottotitolo")}
-            />
-          </Rivela>
-
-          <CaroselloAbbonamenti
-            piani={abbonamenti.map((piano) => ({
-              id: piano.id,
-              slug: piano.slug,
-              nome: piano.nome,
-              sottotitolo: piano.sottotitolo,
-              descrizione: piano.descrizione,
-              prezzo: formattaPrezzo(piano.prezzoCentesimi, piano.valuta),
-              periodo: piano.periodo,
-              inEvidenza: piano.inEvidenza,
-              funzionalita: piano.funzionalita,
-            }))}
-          />
-        </Sezione>
-
-        {/* 05 — Automatizzati con noi */}
+        {/* 04 — Automatizzati con noi */}
         <Sezione id="automazioni">
           <Rivela>
             <TitoloSezione
-              numero="05"
+              numero="04"
               titolo={testo(contenuti, "automazioni.titolo")}
               descrizione={testo(contenuti, "automazioni.kicker")}
             />
@@ -240,52 +243,40 @@ export default async function Home() {
           </Rivela>
         </Sezione>
 
-        {/* 06 — Su misura */}
-        <Sezione id="su-misura">
+        {/* 05 — Vantaggi */}
+        <Sezione>
           <Rivela>
-            <div className="border border-[var(--bordo)]">
-              <div className="border-b border-[var(--bordo)] p-7 sm:p-12">
-                <Etichetta className="text-[var(--accento)]">06</Etichetta>
-                <h2 className="display mt-5 max-w-3xl text-[34px] sm:text-[64px]">
-                  {testo(contenuti, "sumisura.titolo")}
-                </h2>
-                <p className="mono mt-5 max-w-xl text-[13px] leading-[1.75] text-[var(--testo-tenue)]">
-                  {testo(contenuti, "sumisura.sottotitolo")}
-                </p>
-              </div>
-
-              <div className="grid sm:grid-cols-3">
-                {ambitiSuMisura.map((voce, indice) => (
-                  <Link
-                    key={voce.href}
-                    href={voce.href}
-                    className={`group flex items-center justify-between p-6 transition-colors hover:bg-[var(--accento)] sm:p-7 ${
-                      indice < ambitiSuMisura.length - 1
-                        ? "border-b border-[var(--bordo)] sm:border-b-0 sm:border-r"
-                        : ""
-                    }`}
-                  >
-                    <span>
-                      <span className="etichetta block group-hover:text-[var(--accento-testo)]">
-                        {voce.codice}
-                      </span>
-                      <span className="mt-2 block text-[19px] font-semibold tracking-[-0.01em] group-hover:text-[var(--accento-testo)]">
-                        {voce.etichetta}
-                      </span>
-                    </span>
-                    <Freccia className="h-4 w-4 transition-transform group-hover:translate-x-1 group-hover:text-[var(--accento-testo)]" />
-                  </Link>
-                ))}
-              </div>
-            </div>
+            <TitoloSezione
+              numero="05"
+              titolo={testo(contenuti, "vantaggi.titolo")}
+              descrizione={testo(contenuti, "vantaggi.sottotitolo")}
+            />
           </Rivela>
+
+          <Scaglionato className="mt-12 border-t border-[var(--bordo)]">
+            {vantaggi.map((vantaggio, indice) => (
+              <Voce key={vantaggio.id}>
+                <div className="group grid items-baseline gap-3 border-b border-[var(--bordo)] py-6 transition-colors hover:bg-[var(--sfondo-alt)] sm:grid-cols-[80px_260px_1fr] sm:gap-8 sm:py-7">
+                  <Etichetta className="group-hover:text-[var(--accento)]">
+                    {String(indice + 1).padStart(2, "0")}
+                  </Etichetta>
+                  <h3 className="text-[19px] font-semibold tracking-[-0.01em] sm:text-[21px]">
+                    {vantaggio.titolo}
+                  </h3>
+                  <p className="mono text-[12.5px] leading-[1.7] text-[var(--testo-tenue)]">
+                    {vantaggio.descrizione}
+                  </p>
+                </div>
+              </Voce>
+            ))}
+          </Scaglionato>
         </Sezione>
 
-        {/* 07 — FAQ */}
+        {/* 06 — FAQ */}
         <Sezione id="faq">
           <Rivela>
             <TitoloSezione
-              numero="07"
+              numero="06"
               titolo={testo(contenuti, "faq.titolo")}
             />
           </Rivela>
@@ -294,11 +285,11 @@ export default async function Home() {
           </div>
         </Sezione>
 
-        {/* 08 — Contatti */}
+        {/* 07 — Contatti */}
         <Sezione id="contatti">
           <Rivela>
             <div className="border-t border-[var(--bordo)] pt-5">
-              <Etichetta className="text-[var(--accento)]">08</Etichetta>
+              <Etichetta className="text-[var(--accento)]">07</Etichetta>
               <h2 className="display mt-5 text-[clamp(2.25rem,8vw,6rem)]">
                 {testo(contenuti, "contatti.titolo")}
               </h2>

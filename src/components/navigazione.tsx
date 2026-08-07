@@ -7,12 +7,19 @@ import { useTelegram, vibra } from "@/components/telegram-provider";
 import { InterruttoreTema } from "@/components/interruttore-tema";
 import { NotificheNav } from "@/components/notifiche-nav";
 
+/**
+ * L'ordine e i numeri seguono la pagina, e non è un dettaglio estetico: i
+ * numeri qui sono gli stessi che compaiono accanto ai titoli delle sezioni,
+ * quindi una voce di menù marcata "04" che porta alla sezione "02" non è
+ * disordine — è un'indicazione sbagliata. Cambiando l'ordine delle sezioni
+ * in `app/(sito)/page.tsx` va cambiato anche questo elenco.
+ */
 const voci = [
+  { href: "/#abbonamenti", etichetta: "Abbonamenti", codice: "01" },
   { href: "/#servizi", etichetta: "Servizi", codice: "02" },
-  { href: "/#abbonamenti", etichetta: "Abbonamenti", codice: "04" },
-  { href: "/#automazioni", etichetta: "Automazioni", codice: "05" },
-  { href: "/#su-misura", etichetta: "Su misura", codice: "06" },
-  { href: "/#faq", etichetta: "FAQ", codice: "07" },
+  { href: "/#su-misura", etichetta: "Su misura", codice: "03" },
+  { href: "/#automazioni", etichetta: "Automazioni", codice: "04" },
+  { href: "/#faq", etichetta: "FAQ", codice: "06" },
 ];
 
 export function Navigazione() {
@@ -40,12 +47,22 @@ export function Navigazione() {
         className="absolute inset-x-0 bottom-0 h-px origin-left bg-[var(--accento)]"
       />
 
-      <nav className="mx-auto flex h-14 w-full max-w-[1400px] items-stretch justify-between px-4 sm:px-8">
-        <Link href="/" className="flex items-center gap-3">
-          <span className="mono flex h-6 w-6 items-center justify-center bg-[var(--accento)] text-[12px] font-bold text-[var(--accento-testo)]">
+      {/* min-w-0 sulla barra e sul marchio: senza, la colonna di destra —
+          tema, avatar, campanella, menù — spingeva il tutto tredici pixel
+          oltre il bordo su uno schermo da 360, e il pulsante del menù
+          risultava tagliato a metà. Il body ha overflow-x nascosto, quindi
+          non compariva nemmeno una barra di scorrimento a segnalarlo: si
+          vedeva solo un pulsante mozzato, che sembra un difetto grafico e
+          invece era spazio mancante. */}
+      <nav className="mx-auto flex h-14 w-full max-w-[1400px] min-w-0 items-stretch justify-between px-4 sm:px-8">
+        <Link href="/" className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <span className="mono flex h-6 w-6 shrink-0 items-center justify-center bg-[var(--accento)] text-[12px] font-bold text-[var(--accento-testo)]">
             P
           </span>
-          <span className="mono text-[13px] font-semibold uppercase tracking-[0.14em]">
+          {/* Il nome per esteso sparisce sotto i 380 pixel: il quadrato con
+              la P resta ed è già il marchio — è lo stesso segno su cui si fa
+              doppio clic per entrare a sito chiuso. */}
+          <span className="mono hidden truncate text-[13px] font-semibold tracking-[0.14em] uppercase min-[380px]:block">
             Phantom Lab
           </span>
         </Link>

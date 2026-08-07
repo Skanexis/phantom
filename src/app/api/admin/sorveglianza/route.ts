@@ -7,7 +7,8 @@ import {
   leggiClassificazioni,
 } from "@/lib/rete-inversa";
 import { statoElenchi } from "@/lib/bandi";
-import { statoCrowdSec } from "@/lib/crowdsec";
+import { statoCrowdSec, storicoCrowdSec } from "@/lib/crowdsec";
+import { operatoreDi } from "@/lib/reti-note";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -263,11 +264,33 @@ export async function GET() {
     // risolve il compito periodico. Vedi `leggiClassificazioni`.
     rete: leggiClassificazioni(daClassificare),
     reteInAttesa: inAttesaDiRisoluzione(),
+    /**
+     * A chi appartiene ogni indirizzo, per intervalli noti.
+     *
+     * Si calcola qui e non nel browser perché la tabella degli intervalli è
+     * lunga e non ha motivo di viaggiare: al pannello serve il verdetto,
+     * non i dati per ricavarlo. Il costo è una manciata di confronti fra
+     * interi per indirizzo.
+     */
+    operatori: Object.fromEntries(
+      [...new Set(daClassificare)]
+        .map((ip) => [ip, operatoreDi(ip)] as const)
+        .filter(([, operatore]) => operatore !== null),
+    ),
     elenchi: statoElenchi(),
     provvedimenti: await leggiProvvedimenti(),
     // Lettura di memoria: l'interrogazione a CrowdSec la fa il compito
     // periodico, non questa richiesta.
-    crowdsec: statoCrowdSec(),
+    crowdsec: {
+      ...statoCrowdSec(),
+      // Lo storico invece è a database, e va letto: sono poche decine di
+      // righe su un indice.
+      storico: (await storicoCrowdSec()).map((voce) => ({
+        ...voce,
+        vistoIl: voce.vistoIl.getTime(),
+        scadutaIl: voce.scadutaIl ? voce.scadutaIl.getTime() : null,
+      })),
+    },
     flussi: statoFlussi(),
     carico: await leggiCarico(),
     processo: {

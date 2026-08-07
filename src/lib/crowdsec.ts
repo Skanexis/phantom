@@ -23,6 +23,88 @@
  */
 
 import { accodaAllerta } from "@/lib/sorveglianza";
+import { prisma } from "@/lib/prisma";
+
+/** Vero per le decisioni prese qui, false per l'elenco condiviso. */
+function eLocale(origine: string) {
+  return origine !== "CAPI" && origine !== "lists";
+}
+
+/**
+ * Conserva a database le decisioni prese su questo sito.
+ *
+ * Solo quelle locali, e la scelta è deliberata: con l'elenco condiviso
+ * attivo ogni giro porta decine di migliaia di indirizzi segnalati da
+ * altri, e scriverli sarebbe una tabella enorme che non risponde a nessuna
+ * domanda — a chi guarda il pannello non serve sapere che il mondo ha
+ * bloccato mezzo internet, serve sapere chi ha attaccato *noi*.
+ *
+ * Non solleva mai: la chiama un timer di sistema, e questa è una comodità
+ * — se il database non risponde, il blocco resta comunque applicato dal
+ * firewall.
+ */
+async function conservaStorico(correnti: DecisioneCrowdSec[]) {
+  const locali = correnti.filter((voce) => eLocale(voce.origine));
+
+  try {
+    for (const voce of locali) {
+      await prisma.decisioneCrowdSec.upsert({
+        where: {
+          valore_scenario: { valore: voce.valore, scenario: voce.scenario },
+        },
+        create: {
+          valore: voce.valore,
+          tipo: voce.tipo,
+          scenario: voce.scenario,
+          origine: voce.origine,
+          durata: voce.durata,
+        },
+        // Riapparsa dopo essere scaduta: è di nuovo in vigore, e la riga
+        // torna attiva invece di duplicarsi.
+        update: { durata: voce.durata, scadutaIl: null },
+      });
+    }
+
+    // Chi non compare più fra le decisioni in vigore è scaduto. Si marca
+    // invece di cancellare: la riga è lo storico, ed è tutto il punto.
+    await prisma.decisioneCrowdSec.updateMany({
+      where: {
+        scadutaIl: null,
+        valore: { notIn: locali.map((voce) => voce.valore) },
+      },
+      data: { scadutaIl: new Date() },
+    });
+  } catch (eccezione) {
+    console.error("[crowdsec] storico non aggiornato:", eccezione);
+  }
+}
+
+/**
+ * Le decisioni già viste, per il pannello: prima le attive, poi le scadute.
+ *
+ * Risponde alla domanda che il solo elenco in vigore non può reggere:
+ * «questo indirizzo era già stato bloccato?». Il traffico bloccato muore
+ * nel firewall e non lascia traccia altrove, quindi o lo si conserva qui o
+ * non lo si sa più.
+ */
+export async function storicoCrowdSec(quante = 40) {
+  try {
+    return await prisma.decisioneCrowdSec.findMany({
+      orderBy: [{ scadutaIl: { sort: "asc", nulls: "first" } }, { vistoIl: "desc" }],
+      take: quante,
+      select: {
+        id: true,
+        valore: true,
+        scenario: true,
+        durata: true,
+        vistoIl: true,
+        scadutaIl: true,
+      },
+    });
+  } catch {
+    return [];
+  }
+}
 
 /** L'API locale ascolta solo su loopback: non esce dalla macchina. */
 const API = process.env.CROWDSEC_API_URL ?? "http://127.0.0.1:8080";
@@ -190,8 +272,7 @@ export async function leggiDecisioni(): Promise<number | null> {
      */
     const nuoveLocali: DecisioneCrowdSec[] = [];
     for (const [chiaveVoce, voce] of aggiornate) {
-      const locale = voce.origine !== "CAPI" && voce.origine !== "lists";
-      if (!locale) continue;
+      if (!eLocale(voce.origine)) continue;
       if (dep.annunciate.has(chiaveVoce)) continue;
       // Al primo giro dopo un riavvio non si annuncia nulla: sarebbero
       // decisioni vecchie, già viste quando furono prese.
@@ -210,6 +291,11 @@ export async function leggiDecisioni(): Promise<number | null> {
     dep.decisioni = aggiornate;
     dep.ultimaLettura = adesso;
     annota(dep, true);
+
+    // Dopo aver aggiornato lo stato in memoria, non prima: se la scrittura
+    // a database è lenta o fallisce, il pannello mostra comunque le
+    // decisioni correnti.
+    await conservaStorico([...aggiornate.values()]);
 
     for (const voce of nuoveLocali.slice(0, 10)) {
       accodaAllerta({
@@ -262,13 +348,11 @@ export function statoCrowdSec() {
     ultimoErrore: dep.ultimoErrore,
     ultimaLettura: dep.ultimaLettura,
     totale: decisioni.length,
+    /** Quante decisioni riguardano davvero questo sito. */
+    locali: decisioni.filter((voce) => eLocale(voce.origine)).length,
     /** Le locali per prime: sono le uniche che riguardano questo sito. */
     decisioni: decisioni
-      .sort((a, b) => {
-        const localeA = a.origine !== "CAPI" && a.origine !== "lists" ? 0 : 1;
-        const localeB = b.origine !== "CAPI" && b.origine !== "lists" ? 0 : 1;
-        return localeA - localeB;
-      })
+      .sort((a, b) => Number(!eLocale(a.origine)) - Number(!eLocale(b.origine)))
       .slice(0, 40),
   };
 }

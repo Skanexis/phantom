@@ -235,6 +235,37 @@ model Ricorso {
   @@index([ip])
 }
 
+/// Storico delle decisioni prese da CrowdSec.
+///
+/// CrowdSec le conserva finché sono in vigore: scadute, spariscono. Ma la
+/// domanda utile arriva quasi sempre dopo — «questo indirizzo era già stato
+/// bloccato?», «da quanto tempo insistono da questa rete?» — e senza una
+/// copia nostra la risposta non esiste da nessuna parte, perché il traffico
+/// bloccato non lascia traccia nemmeno nei log di Nginx.
+///
+/// Si scrive quando il compito periodico vede una decisione per la prima
+/// volta: `vistoIl` è quando ce ne siamo accorti, non quando CrowdSec l'ha
+/// presa. La differenza è al massimo di venti secondi e non vale una
+/// chiamata in più per scoprirla.
+model DecisioneCrowdSec {
+  id        Int      @id @default(autoincrement())
+  /// Indirizzo o rete colpita, come la scrive CrowdSec.
+  valore    String
+  tipo      String
+  scenario  String
+  /// "crowdsec" per le decisioni locali, "CAPI"/"lists" per l'elenco
+  /// condiviso: distinguerle è tutto, perché solo le prime riguardano noi.
+  origine   String
+  durata    String
+  vistoIl   DateTime @default(now())
+  /// Quando è sparita dall'elenco delle decisioni in vigore.
+  scadutaIl DateTime?
+
+  @@unique([valore, scenario])
+  @@index([vistoIl])
+  @@index([origine, vistoIl])
+}
+
 /// Archivio duraturo delle richieste, per la scheda Logs.
 ///
 /// La sorveglianza dal vivo resta in memoria e si azzera a ogni riavvio: è

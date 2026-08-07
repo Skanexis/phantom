@@ -224,8 +224,25 @@ type Sospetto = {
   colpi: number[];
   tipi: Partial<Record<TipoEvento, number>>;
   totale: number;
+  primo: number;
   ultimo: number;
+  /**
+   * I percorsi che questo indirizzo ha provato, con quante volte.
+   *
+   * È la differenza fra un elenco di eventi e un ritratto di chi bussa.
+   * Dodici righe "sonda da 4.223.73.90" dicono che qualcuno insiste;
+   * `/aa.php`, `/av.php`, `/admin.php`, `/8.php` dicono che sta cercando
+   * una webshell PHP lasciata da qualcun altro — e quello è il fatto su cui
+   * si decide, non il conteggio.
+   *
+   * Tetto stretto: la mappa la riempie chi bussa, e uno scanner prova
+   * migliaia di percorsi diversi. Trenta bastano a riconoscere lo schema.
+   */
+  percorsi: Map<string, number>;
 };
+
+/** Percorsi distinti conservati per indirizzo. */
+const MAX_PERCORSI_SOSPETTO = 30;
 
 type Minuto = { totale: number; bloccate: number; ip: Set<string> };
 
@@ -973,12 +990,24 @@ export function segnala(evento: {
     colpi: [],
     tipi: {},
     totale: 0,
+    primo: adesso,
     ultimo: adesso,
+    percorsi: new Map<string, number>(),
   };
   sospetto.tipi[evento.tipo] = (sospetto.tipi[evento.tipo] ?? 0) + 1;
   sospetto.totale += 1;
   sospetto.ultimo = adesso;
   sospetto.colpi.push(adesso);
+
+  // Il percorso senza query: `/8.php?x=1` e `/8.php?x=2` sono lo stesso
+  // tentativo, e contarli separati riempirebbe il ritratto di rumore.
+  const percorso = (evento.percorso ?? "").split("?")[0];
+  if (percorso && sospetto.percorsi.size < MAX_PERCORSI_SOSPETTO) {
+    sospetto.percorsi.set(percorso, (sospetto.percorsi.get(percorso) ?? 0) + 1);
+  } else if (percorso && sospetto.percorsi.has(percorso)) {
+    sospetto.percorsi.set(percorso, (sospetto.percorsi.get(percorso) ?? 0) + 1);
+  }
+
   dep.sospetti.set(evento.ip, sospetto);
   pota(dep.sospetti, MAX_SOSPETTI);
 
@@ -1264,10 +1293,20 @@ export function istantanea() {
       ip,
       eventi: voce.totale,
       tipi: voce.tipi,
+      primo: voce.primo,
       ultimo: voce.ultimo,
       richieste: scheda?.richieste ?? 0,
       agente: scheda?.agente ?? "",
+      paese: scheda?.paese ?? null,
       inQuarantena: (dep.quarantena.get(ip)?.fino ?? 0) > adesso,
+      /**
+       * I percorsi più provati da questo indirizzo, non tutti: sei bastano
+       * a riconoscere lo schema — «cerca webshell PHP», «cerca WordPress»,
+       * «cerca file di configurazione» — e il resto sarebbe solo lunghezza.
+       */
+      percorsi: primi([...voce.percorsi.entries()], 6, ([, quante]) => quante)
+        .map(([percorso, quante]) => ({ percorso, quante })),
+      percorsiDistinti: voce.percorsi.size,
     };
   });
 

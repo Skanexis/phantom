@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
+import { TAG_CONTENUTI } from "@/lib/contenuti";
 import { prisma } from "@/lib/prisma";
 import {
   richiediOperatore,
@@ -96,7 +97,27 @@ function booleano(dati: FormData, chiave: string) {
   return dati.get(chiave) === "on" || dati.get(chiave) === "true";
 }
 
+/**
+ * Rende visibile subito una modifica fatta dal pannello.
+ *
+ * `updateTag` e non `revalidateTag`: sono due cose diverse, e la
+ * differenza è esattamente il problema che stiamo risolvendo.
+ * `revalidateTag` marca la copia come scaduta — chi legge subito dopo può
+ * ancora ricevere quella vecchia mentre la nuova si costruisce.
+ * `updateTag` esiste per essere chiamata dentro un'azione del server e
+ * garantisce di rileggere ciò che si è appena scritto: chi salva un
+ * contatto e ricarica la pagina vede il contatto nuovo, non quello di
+ * prima.
+ *
+ * Le due `revalidatePath` restano per il pannello stesso e per la pagina
+ * pubblica, che è renderizzata dal server a ogni richiesta.
+ *
+ * Va chiamata da OGNI azione che tocca contenuti visibili al pubblico:
+ * dimenticarla significa una modifica salvata a database che non compare
+ * sul sito, e nessun errore da nessuna parte a spiegarlo.
+ */
 function rinfresca() {
+  updateTag(TAG_CONTENUTI);
   revalidatePath("/admin");
   revalidatePath("/");
 }
